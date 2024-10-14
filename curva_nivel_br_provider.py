@@ -29,7 +29,9 @@ __copyright__ = '(C) 2024 by Daniel Hulshof Saint Martin'
 # This will get replaced with a git SHA1 when you do a git archive
 
 __revision__ = '$Format:%H$'
-
+import os
+import inspect
+from qgis.PyQt.QtGui import QIcon
 from qgis.core import QgsProcessingProvider
 from .curva_nivel_br_algorithm import CurvaNivelBRAlgorithm
 
@@ -63,7 +65,7 @@ class CurvaNivelBRProvider(QgsProcessingProvider):
         string should be a unique, short, character only string, eg "qgis" or
         "gdal". This string should not be localised.
         """
-        return ''
+        return 'Curva de Nivel BR'
 
     def name(self):
         """
@@ -72,14 +74,16 @@ class CurvaNivelBRProvider(QgsProcessingProvider):
 
         This string should be short (e.g. "Lastools") and localised.
         """
-        return self.tr('')
+        return self.tr('Curva de Nivel BR')
 
     def icon(self):
         """
         Should return a QIcon which is used for your provider inside
         the Processing toolbox.
         """
-        return QgsProcessingProvider.icon(self)
+        cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
+        icon = QIcon(os.path.join(os.path.join(cmd_folder, 'logo.png')))
+        return icon
 
     def longName(self):
         """

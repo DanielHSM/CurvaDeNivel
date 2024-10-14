@@ -29,14 +29,31 @@ __copyright__ = '(C) 2024 by Daniel Hulshof Saint Martin'
 # This will get replaced with a git SHA1 when you do a git archive
 
 __revision__ = '$Format:%H$'
-
+import os
+import inspect
+import requests
+import zipfile
+import tempfile
+import subprocess
+import processing
+from osgeo import gdal, ogr
+import osgeo_utils.gdal_merge
+from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (QgsProcessing,
                        QgsFeatureSink,
+                       QgsFeature,
+                       QgsVectorLayer,
                        QgsProcessingAlgorithm,
                        QgsProcessingParameterFeatureSource,
-                       QgsProcessingParameterFeatureSink)
-
+                       QgsProcessingParameterFeatureSink,
+                       QgsProcessingParameterExtent,
+                       QgsProcessingParameterCrs,
+                       QgsProcessingParameterDefinition,
+                       QgsProcessingParameterNumber,
+                       QgsProcessingUtils,
+                       QgsPointXY,
+                       QgsGeometry)
 
 class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
     """
@@ -58,6 +75,10 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
 
     OUTPUT = 'OUTPUT'
     INPUT = 'INPUT'
+    AREA_INTERESSE = 'AREA_INTERESSE'
+    AREA_INTERESSE_CRS = 'AREA_INTERESSE_CRS'
+    INTERVALO = 'INTERVALO'
+    
 
     def initAlgorithm(self, config):
         """
@@ -65,54 +86,175 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
         with some other properties.
         """
 
-        # We add the input vector features source. It can have any kind of
-        # geometry.
+        # Adiciona entrada da área de interesse
+        self.addParameter(QgsProcessingParameterExtent(self.AREA_INTERESSE, "Área de Interesse (selecionar)", optional=False))
+
+        # Adiciona entrada para CRS da area de interesse
+        crs_param = QgsProcessingParameterCrs(self.AREA_INTERESSE_CRS, 'CRS da Área de Interesse', optional=True)
+        crs_param.setFlags(crs_param.flags() | QgsProcessingParameterDefinition.FlagHidden)
+        self.addParameter(crs_param)
+        
+        # Adiciona intervalo entre curvas
         self.addParameter(
-            QgsProcessingParameterFeatureSource(
-                self.INPUT,
-                self.tr('Input layer'),
-                [QgsProcessing.TypeVectorAnyGeometry]
+            QgsProcessingParameterNumber(
+                name = self.INTERVALO,
+                description = self.tr('Intervalo entre curvas'),
+                type = QgsProcessingParameterNumber.Integer,
+                defaultValue = 10,
+                minValue=1, 
+                maxValue=1000, 
+                optional = True
             )
         )
-
+        
         # We add a feature sink in which to store our processed features (this
         # usually takes the form of a newly created vector layer when the
         # algorithm is run in QGIS).
-        self.addParameter(
-            QgsProcessingParameterFeatureSink(
-                self.OUTPUT,
-                self.tr('Output layer')
-            )
-        )
+        self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT,self.tr('Curvas de Nível')))
+        
 
     def processAlgorithm(self, parameters, context, feedback):
-        """
-        Here is where the processing itself takes place.
-        """
 
-        # Retrieve the feature source and sink. The 'dest_id' variable is used
-        # to uniquely identify the feature sink, and must be included in the
-        # dictionary returned by the processAlgorithm function.
-        source = self.parameterAsSource(parameters, self.INPUT, context)
-        (sink, dest_id) = self.parameterAsSink(parameters, self.OUTPUT,
-                context, source.fields(), source.wkbType(), source.sourceCrs())
+        numeroDeEtapas = 1
+        
+        # Instancia parametros de entrada
+        area_interesse = self.parameterAsExtent(parameters, self.AREA_INTERESSE, context)
+        
+        area_interesse_crs = self.parameterAsExtentCrs(parameters, self.AREA_INTERESSE, context)
+        if self.AREA_INTERESSE_CRS in parameters:
+            c = self.parameterAsCrs(parameters, self.TARGET_AREA_CRS, context)
+            if c.isValid():
+                area_interesse_crs = c
+
+        geometria_area_interesse = QgsGeometry.fromRect(area_interesse)
+        
+        intervalo = self.parameterAsInt(parameters, self.INTERVALO, context)
 
         # Compute the number of steps to display within the progress bar and
         # get features from source
-        total = 100.0 / source.featureCount() if source.featureCount() else 0
-        features = source.getFeatures()
+        total = 100.0 / numeroDeEtapas
+        
+        raster_dir = os.getenv("TEMP") + '\CurvaNivelBR'
+        caminho_raster = 'http://www.dsr.inpe.br/topodata/data/geotiff/'
+        nome_raster = list('00S00_ZN')
+        
+        lista_rasters = []
+        
+        lat_norte = 6.0
+        lon_oeste = -75.0
+        
+        # Cria diretório temporário para armazenar arquivos raster
+        os.makedirs(raster_dir, exist_ok = True)  
+        feedback.pushInfo ('\nAbrindo diretorio: ' + raster_dir)
+        
+        # Verifica quais arquivos raster serão necessários
+        feedback.pushInfo ('\nCalculando sobreposição')
+        while (lat_norte > -34.0):
+            lon_oeste = -75.0
+            while (lon_oeste < -34.5):
+                points = [QgsPointXY(lon_oeste, lat_norte), QgsPointXY(lon_oeste + 1.5, lat_norte), QgsPointXY(lon_oeste + 1.5, lat_norte - 1.0), QgsPointXY(lon_oeste, lat_norte - 1.0)]
+                poly = QgsGeometry.fromPolygonXY([points])
+                
+                # Testa sobreposição do polígono de interesse com os rasters
+                if not poly.intersection(geometria_area_interesse).isEmpty():
 
-        for current, feature in enumerate(features):
-            # Stop the algorithm if cancel button has been clicked
-            if feedback.isCanceled():
-                break
+                    # Contrói nome do arquivo raster 
+                    nome_raster = list("00S00_ZN")
+                    nome_raster[0] = str(abs(int(lat_norte / 10)))
+                    nome_raster[1] = str(abs(int(lat_norte)) % 10)
+                    if lat_norte > 0:
+                        nome_raster[2] = 'N'
+                    nome_raster[3] = str(abs(int(lon_oeste / 10)))
+                    nome_raster[4] = str(abs(int(lon_oeste)) % 10)
+                    if lon_oeste % 1.0 == 0:
+                        nome_raster[5] = '_'
+                    else:
+                        nome_raster[5] = '5'
+                
+                    if ''.join(nome_raster) not in lista_rasters:
+                        lista_rasters.append(''.join(nome_raster))
+                    # feedback.pushInfo ('Arquivo: ' + ''.join(nome_raster))
+                            
+                # feat = QgsFeature()
+                # feat.setGeometry(poly)
+                # sink.addFeature(feat, QgsFeatureSink.FastInsert)
+                
+                # feedback.pushInfo ('Lat: ' + str(lat_norte) + ' Lon: ' + str(lon_oeste))
+                lon_oeste += 1.5
+            lat_norte -= 1.0
+        
+        
+        # Faz download dos rasters
+        # TODO: mostrar progresso do download
+        for raster in lista_rasters:
+            feedback.pushInfo ('\nBuscando arquivo Raster: ' + raster + '.tif')
+            if os.path.exists(os.path.join(raster_dir, raster + '.tif')):
+                feedback.pushInfo ('Arquivo localizado no disco')
+            else:
+                feedback.pushInfo ('Baixando arquivo: ' + raster)
+                raster_url = caminho_raster + raster + '.zip'
+                with requests.get(raster_url, allow_redirects = True) as r:
+                    r.raise_for_status()
+                    with tempfile.TemporaryFile() as zip:
+                        zip.write(r.content)
+                        with zipfile.ZipFile(zip) as zf:
+                            files = zf.namelist()
+                            for filename in files:
+                                feedback.pushInfo ('Descompactando arquivo: ' + filename)
+                                file_path = os.path.join(raster_dir, filename)
+                                f = open(file_path, 'wb')
+                                f.write(zf.read(filename))
+                                f.close()
+       
+        # Para cada raster baixado faz o corte para a área de sobreposição com a área de interesse
+        feedback.pushInfo ('\nRecortando arquivos raster para área de interesse')
+        raster_clips = []
+        for raster in lista_rasters:
+            raster_clips.append(os.path.join(raster_dir, raster + '_clip.tif'))
+            fn_in = os.path.join(raster_dir, raster + '.tif')
+            fn_clip = os.path.join(raster_dir, raster + '_clip.tif')
+            #fn_poly = self.parameterAsVectorLayer(parameters, 'input', context).source().rsplit('|')[0]
+            #fn_layer = self.parameterAsVectorLayer(parameters, 'input', context).source().rsplit('|')[1].rsplit('=')[1]
+            #feedback.pushInfo ('Cortando: ' + raster + '.tif')
+            #feedback.pushInfo ('Poligono: ' + fn_poly + ' Layer: ' + fn_layer)
+            #subprocess.run(f'gdalwarp -overwrite -s_srs EPSG:4326 -t_srs EPSG:4326 -of GTiff -cutline "{fn_poly}" -cl "area interesse" -crop_to_cutline -dstnodata 0.0 {fn_in} {fn_clip}')
+            result = gdal.Warp(fn_clip, fn_in, cutlineWKT=geometria_area_interesse.asWkt(), cropToCutline=True, dstNodata=0, srcSRS='EPSG:4326', dstSRS='EPSG:4326', format='GTiff')
+            result = None
+        
+        # Unifica todas as partes recortadas dos rasters
+        feedback.pushInfo ('\nUnificando arquivos raster da área de interesse')
+        g = gdal.Warp(os.path.join(raster_dir, 'merged.tif'), raster_clips, format="GTiff")
+        g = None
+       
+        # Gera as curvas de nível a partir da imagem unificada
+        feedback.pushInfo ('\nGerando curvas de nível')
+        output_shp = os.path.join(raster_dir, 'curvasdenivel.shp')
 
-            # Add a feature in the sink
+        ogr_ds = ogr.GetDriverByName("ESRI Shapefile").CreateDataSource(output_shp)
+        ogr_lyr = ogr_ds.CreateLayer("Curvas De Nivel")
+        field_defn = ogr.FieldDefn("ID", ogr.OFTInteger)
+        ogr_lyr.CreateField(field_defn)
+        field_defn = ogr.FieldDefn("elev", ogr.OFTReal)
+        ogr_lyr.CreateField(field_defn)
+        ds = gdal.Open(os.path.join(raster_dir, 'merged.tif'))
+        gdal.ContourGenerate(ds.GetRasterBand(1), intervalo, 0, [], 0, 0, ogr_lyr, 0, 1)
+        ogr_ds = None
+        ds = None
+        
+        # Modifica a simbologia
+        
+        # Modifica os labels
+        
+        # Grava dados no arquivo de saída
+        layer = QgsVectorLayer(output_shp, 'Curvas De Nivel')
+        (sink, dest_id) = self.parameterAsSink(parameters, self.OUTPUT,
+                context, layer.fields(), layer.wkbType(), area_interesse_crs)
+        for feature in layer.getFeatures():
             sink.addFeature(feature, QgsFeatureSink.FastInsert)
-
-            # Update the progress bar
-            feedback.setProgress(int(current * total))
-
+        
+        # Ao final apaga diretório temporário
+        feedback.pushInfo ('\nFinalizou com sucesso\n')
+        
         # Return the results of the algorithm. In this case our only result is
         # the feature sink which contains the processed features, but some
         # algorithms may return multiple feature sinks, calculated numeric
@@ -121,6 +263,11 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
         # or output names.
         return {self.OUTPUT: dest_id}
 
+    def icon(self):
+        cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
+        icon = QIcon(os.path.join(os.path.join(cmd_folder, 'logo.png')))
+        return icon
+        
     def name(self):
         """
         Returns the algorithm name, used for identifying the algorithm. This
@@ -129,7 +276,7 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
         lowercase alphanumeric characters only and no spaces or other
         formatting characters.
         """
-        return 'Curva de Nivel BR'
+        return 'Gerar Curva de Nivel'
 
     def displayName(self):
         """

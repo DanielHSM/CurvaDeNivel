@@ -36,4 +36,4 @@ def classFactory(iface):  # pylint: disable=invalid-name
     """
     #
     from .curva_nivel_br import CurvaNivelBRPlugin
-    return CurvaNivelBRPlugin()
+    return CurvaNivelBRPlugin(iface)

@@ -3,9 +3,9 @@
 # This file should be included when you package your plugin.# Mandatory items:
 
 [general]
-name=Curva de Nivel BR
+name=Gerar Curva de Nivel
 qgisMinimumVersion=3.0
-description=Este plugin cria curvas de nível no território brasileiro.
+description=Gerador de curvas de nível no território brasileiro.
 version=0.1
 author=Daniel Hulshof Saint Martin
 email=daniel.hulshof@gmail.com
@@ -25,7 +25,7 @@ hasProcessingProvider=yes
 # Tags are comma separated with spaces allowed
 tags=python, contour, vector, curva, nivel, altimetria
 
-homepage=http://homepage
+homepage=https://github.com/DanielHSM/CurvaNivelBR
 category=Analysis
 icon=icon.png
 # experimental flag
