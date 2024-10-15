@@ -38,7 +38,8 @@ import subprocess
 import processing
 from osgeo import gdal, ogr
 import osgeo_utils.gdal_merge
-from qgis.PyQt.QtGui import QIcon
+from qgis.PyQt.QtGui import (QIcon,
+                            QColor)
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (QgsProcessing,
                        QgsFeatureSink,
@@ -51,10 +52,20 @@ from qgis.core import (QgsProcessing,
                        QgsProcessingParameterCrs,
                        QgsProcessingParameterDefinition,
                        QgsProcessingParameterNumber,
+                       QgsProcessingParameterColor,
                        QgsProcessingUtils,
+                       QgsRuleBasedRenderer,
+                       QgsVectorLayerSimpleLabeling,
+                       QgsPalLayerSettings,
+                       QgsTextMaskSettings,
+                       QgsSymbolLayerReference,
+                       QgsSymbolLayerId,
+                       QgsTextMaskSettings,
+                       QgsTextFormat,
                        QgsPointXY,
-                       QgsGeometry)
-
+                       QgsGeometry,
+                       QgsSymbol)
+                       
 class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
     """
     This is an example algorithm that takes a vector layer and
@@ -78,6 +89,7 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
     AREA_INTERESSE = 'AREA_INTERESSE'
     AREA_INTERESSE_CRS = 'AREA_INTERESSE_CRS'
     INTERVALO = 'INTERVALO'
+    COR_CURVAS = 'COR_CURVAS'
     
 
     def initAlgorithm(self, config):
@@ -107,6 +119,18 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
             )
         )
         
+        # Adiciona cor da curva de nivel
+        self.addParameter(
+            QgsProcessingParameterColor(
+                name = self.COR_CURVAS,
+                description = self.tr('Coloração das curvas'),
+                defaultValue = "#CC8000cc",
+                opacityEnabled=True,
+                optional = True
+            )
+        )
+
+        
         # We add a feature sink in which to store our processed features (this
         # usually takes the form of a newly created vector layer when the
         # algorithm is run in QGIS).
@@ -116,36 +140,43 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
     def processAlgorithm(self, parameters, context, feedback):
 
         numeroDeEtapas = 1
+        # Compute the number of steps to display within the progress bar and
+        # get features from source
+        total = 100.0 / numeroDeEtapas
         
         # Instancia parametros de entrada
         area_interesse = self.parameterAsExtent(parameters, self.AREA_INTERESSE, context)
         
+        # Define CRS da area de interesse
         area_interesse_crs = self.parameterAsExtentCrs(parameters, self.AREA_INTERESSE, context)
         if self.AREA_INTERESSE_CRS in parameters:
             c = self.parameterAsCrs(parameters, self.TARGET_AREA_CRS, context)
             if c.isValid():
                 area_interesse_crs = c
 
+        # Carrega a geometria da área de interesse
         geometria_area_interesse = QgsGeometry.fromRect(area_interesse)
         
+        # Carrega o intervalo entre as curvas de nível
         intervalo = self.parameterAsInt(parameters, self.INTERVALO, context)
-
-        # Compute the number of steps to display within the progress bar and
-        # get features from source
-        total = 100.0 / numeroDeEtapas
         
+        # Carrega a cor das curvas de nível
+        cor_curva = self.parameterAsColor(parameters, self.COR_CURVAS, context)
+
+        
+        # Carrega caminho da pasta de armazenamento temporario
         raster_dir = os.getenv("TEMP") + '\CurvaNivelBR'
         caminho_raster = 'http://www.dsr.inpe.br/topodata/data/geotiff/'
-        nome_raster = list('00S00_ZN')
-        
-        lista_rasters = []
-        
-        lat_norte = 6.0
-        lon_oeste = -75.0
         
         # Cria diretório temporário para armazenar arquivos raster
         os.makedirs(raster_dir, exist_ok = True)  
         feedback.pushInfo ('\nAbrindo diretorio: ' + raster_dir)
+        
+        # Inicializa variaveis
+        lista_rasters = []
+        lat_norte = 6.0
+        lon_oeste = -75.0
+        
         
         # Verifica quais arquivos raster serão necessários
         feedback.pushInfo ('\nCalculando sobreposição')
@@ -186,6 +217,7 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
         
         # Faz download dos rasters
         # TODO: mostrar progresso do download
+        # TODO: Resolver autenticação do Proxy
         for raster in lista_rasters:
             feedback.pushInfo ('\nBuscando arquivo Raster: ' + raster + '.tif')
             if os.path.exists(os.path.join(raster_dir, raster + '.tif')):
@@ -213,8 +245,7 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
             raster_clips.append(os.path.join(raster_dir, raster + '_clip.tif'))
             fn_in = os.path.join(raster_dir, raster + '.tif')
             fn_clip = os.path.join(raster_dir, raster + '_clip.tif')
-            #fn_poly = self.parameterAsVectorLayer(parameters, 'input', context).source().rsplit('|')[0]
-            #fn_layer = self.parameterAsVectorLayer(parameters, 'input', context).source().rsplit('|')[1].rsplit('=')[1]
+            
             #feedback.pushInfo ('Cortando: ' + raster + '.tif')
             #feedback.pushInfo ('Poligono: ' + fn_poly + ' Layer: ' + fn_layer)
             #subprocess.run(f'gdalwarp -overwrite -s_srs EPSG:4326 -t_srs EPSG:4326 -of GTiff -cutline "{fn_poly}" -cl "area interesse" -crop_to_cutline -dstnodata 0.0 {fn_in} {fn_clip}')
@@ -229,28 +260,74 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
         # Gera as curvas de nível a partir da imagem unificada
         feedback.pushInfo ('\nGerando curvas de nível')
         output_shp = os.path.join(raster_dir, 'curvasdenivel.shp')
-
         ogr_ds = ogr.GetDriverByName("ESRI Shapefile").CreateDataSource(output_shp)
         ogr_lyr = ogr_ds.CreateLayer("Curvas De Nivel")
         field_defn = ogr.FieldDefn("ID", ogr.OFTInteger)
         ogr_lyr.CreateField(field_defn)
-        field_defn = ogr.FieldDefn("elev", ogr.OFTReal)
+        field_defn = ogr.FieldDefn("ELEV", ogr.OFTReal)
         ogr_lyr.CreateField(field_defn)
         ds = gdal.Open(os.path.join(raster_dir, 'merged.tif'))
         gdal.ContourGenerate(ds.GetRasterBand(1), intervalo, 0, [], 0, 0, ogr_lyr, 0, 1)
         ogr_ds = None
         ds = None
-        
-        # Modifica a simbologia
-        
-        # Modifica os labels
-        
+  
         # Grava dados no arquivo de saída
         layer = QgsVectorLayer(output_shp, 'Curvas De Nivel')
         (sink, dest_id) = self.parameterAsSink(parameters, self.OUTPUT,
                 context, layer.fields(), layer.wkbType(), area_interesse_crs)
         for feature in layer.getFeatures():
             sink.addFeature(feature, QgsFeatureSink.FastInsert)
+            
+        # Modifica a simbologia
+        layer_curvas = QgsProcessingUtils.mapLayerFromString(dest_id, context)
+        symbol = QgsSymbol.defaultSymbol(layer_curvas.geometryType())
+        renderer = QgsRuleBasedRenderer(symbol)
+        root_rule = renderer.rootRule()
+        
+        # Curva Mestra
+        rule = root_rule.children()[0]
+        rule.setLabel("Curva Mestra")
+        rule.setFilterExpression(f'"ELEV" % {intervalo*5} = 0')
+        rule.symbol().setColor(cor_curva)
+        rule.symbol().setWidth(0.5)
+          
+        # Curva Normal           
+        rule = root_rule.children()[0].clone()
+        rule.setLabel("Curva Normal")
+        rule.setFilterExpression(f'"ELEV" % {intervalo*5} != 0')
+        rule.symbol().setColor(cor_curva)
+        rule.symbol().setWidth(0.25)
+        root_rule.appendChild(rule)
+        
+        # Salva as regras de curva
+        layer_curvas.setRenderer(renderer)
+        layer_curvas.triggerRepaint()
+        
+        # Modifica os labels
+        # Configure label settings
+        # Cria mascara
+        mask = QgsTextMaskSettings()
+        mask.setSize(2)
+        mask.setMaskedSymbolLayers([QgsSymbolLayerReference(layer_curvas.id(), rule.symbol().symbolLayer(0).id())])
+        mask.setEnabled(True)
+        # Configura texto
+        textFormat = QgsTextFormat()
+        textFormat.setSize(10)
+        textFormat.setColor(cor_curva)
+        textFormat.setMask(mask)
+        # Salva configurações
+        settings = QgsPalLayerSettings()
+        settings.fieldName = f'CASE WHEN "ELEV" % {intervalo*5} = 0 THEN "ELEV" ELSE \'\' END'
+        settings.enabled = True
+        settings.drawLabels = True
+        settings.isExpression = True
+        settings.placement = QgsPalLayerSettings.Line
+        settings.placementFlags = QgsPalLayerSettings.OnLine
+        settings.setFormat(textFormat)
+
+        layer_curvas.setLabelsEnabled(True)
+        layer_curvas.setLabeling(QgsVectorLayerSimpleLabeling(settings))
+        layer_curvas.triggerRepaint()
         
         # Ao final apaga diretório temporário
         feedback.pushInfo ('\nFinalizou com sucesso\n')
