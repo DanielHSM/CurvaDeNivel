@@ -32,40 +32,54 @@ __revision__ = '$Format:%H$'
 import os
 import inspect
 import requests
+from requests.auth import HTTPProxyAuth
 import zipfile
 import tempfile
 import subprocess
 import processing
+from typing import List
 from osgeo import gdal, ogr
 import osgeo_utils.gdal_merge
 from qgis.PyQt.QtGui import (QIcon,
                             QColor)
-from qgis.PyQt.QtCore import QCoreApplication
+from  qgis.PyQt.QtNetwork import (QNetworkProxy,
+                                    QNetworkRequest)
+from qgis.PyQt.QtCore import (QCoreApplication,
+                                QSettings,
+                                QUrl)
 from qgis.core import (QgsProcessing,
-                       QgsFeatureSink,
-                       QgsFeature,
-                       QgsVectorLayer,
-                       QgsProcessingAlgorithm,
-                       QgsProcessingParameterFeatureSource,
-                       QgsProcessingParameterFeatureSink,
-                       QgsProcessingParameterExtent,
-                       QgsProcessingParameterCrs,
-                       QgsProcessingParameterDefinition,
-                       QgsProcessingParameterNumber,
-                       QgsProcessingParameterColor,
-                       QgsProcessingUtils,
-                       QgsRuleBasedRenderer,
-                       QgsVectorLayerSimpleLabeling,
-                       QgsPalLayerSettings,
-                       QgsTextMaskSettings,
-                       QgsSymbolLayerReference,
-                       QgsSymbolLayerId,
-                       QgsTextMaskSettings,
-                       QgsTextFormat,
-                       QgsPointXY,
-                       QgsGeometry,
-                       QgsSymbol)
-                       
+                        QgsApplication,
+                        QgsAuthManager,
+                        QgsAuthMethodConfig,
+                        QgsNetworkAccessManager,
+                        QgsFeatureSink,
+                        QgsFeature,
+                        QgsVectorLayer,
+                        QgsProcessingAlgorithm,
+                        QgsProcessingParameterFeatureSource,
+                        QgsProcessingParameterAuthConfig,
+                        QgsProcessingParameterFeatureSink,
+                        QgsProcessingParameterExtent,
+                        QgsProcessingParameterCrs,
+                        QgsProcessingParameterDefinition,
+                        QgsProcessingParameterNumber,
+                        QgsProcessingParameterColor,
+                        QgsProcessingUtils,
+                        QgsRuleBasedRenderer,
+                        QgsVectorLayerSimpleLabeling,
+                        QgsPalLayerSettings,
+                        QgsTextMaskSettings,
+                        QgsSymbolLayerReference,
+                        QgsSymbolLayerId,
+                        QgsTextMaskSettings,
+                        QgsTextFormat,
+                        QgsPointXY,
+                        QgsGeometry,
+                        QgsSymbol)
+                    
+
+                    
+
 class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
     """
     This is an example algorithm that takes a vector layer and
@@ -90,8 +104,8 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
     AREA_INTERESSE_CRS = 'AREA_INTERESSE_CRS'
     INTERVALO = 'INTERVALO'
     COR_CURVAS = 'COR_CURVAS'
+    AUTENTIC = 'AUTENTIC'
     
-
     def initAlgorithm(self, config):
         """
         Here we define the inputs and output of the algorithm, along
@@ -124,8 +138,17 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterColor(
                 name = self.COR_CURVAS,
                 description = self.tr('Coloração das curvas'),
-                defaultValue = "#CC8000cc",
+                defaultValue = "#ff9900cc",
                 opacityEnabled=True,
+                optional = True
+            )
+        )
+        
+        # Adiciona autenticação
+        self.addParameter(
+            QgsProcessingParameterAuthConfig(
+                name = self.AUTENTIC,
+                description = self.tr('Usar autenticação Proxy'),
                 optional = True
             )
         )
@@ -136,14 +159,8 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
         # algorithm is run in QGIS).
         self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT,self.tr('Curvas de Nível')))
         
-
     def processAlgorithm(self, parameters, context, feedback):
 
-        numeroDeEtapas = 1
-        # Compute the number of steps to display within the progress bar and
-        # get features from source
-        total = 100.0 / numeroDeEtapas
-        
         # Instancia parametros de entrada
         area_interesse = self.parameterAsExtent(parameters, self.AREA_INTERESSE, context)
         
@@ -163,10 +180,34 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
         # Carrega a cor das curvas de nível
         cor_curva = self.parameterAsColor(parameters, self.COR_CURVAS, context)
 
-        
         # Carrega caminho da pasta de armazenamento temporario
-        raster_dir = os.getenv("TEMP") + '\CurvaNivelBR'
+        raster_dir = os.path.join(os.getenv("TEMP"), 'CurvaNivelBR')
         caminho_raster = 'http://www.dsr.inpe.br/topodata/data/geotiff/'
+        
+        # Carrega dados de autenticação para proxy
+        usar_proxy = 0
+        autentic = self.parameterAsString(parameters, self.AUTENTIC, context)
+        if (autentic == ''):
+            feedback.pushInfo ('\nSem autenticação de proxy')
+        else:
+            auth_mgr = QgsApplication.authManager()
+            auth_cfg = QgsAuthMethodConfig()
+            auth_mgr.loadAuthenticationConfig(autentic, auth_cfg, True)
+            auth_info = auth_cfg.configMap()
+            # for keys,values in auth_info.items():
+                # feedback.pushInfo(keys + ':' + values + '\n')
+            try:
+                feedback.pushInfo ('\nUtilizando autenticação de proxy para usuário: ' + auth_info['username'])
+                proxy_user = auth_info['username']
+                proxy_password = auth_info['password']
+                proxies = {
+                    "http": auth_info['realm'],
+                    "https": auth_info['realm']
+                }
+                usar_proxy = 1
+            except:
+                feedback.pushInfo ('\n Erro ao carregar dados de autenticação de proxy')
+
         
         # Cria diretório temporário para armazenar arquivos raster
         os.makedirs(raster_dir, exist_ok = True)  
@@ -176,10 +217,9 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
         lista_rasters = []
         lat_norte = 6.0
         lon_oeste = -75.0
-        
-        
+                
         # Verifica quais arquivos raster serão necessários
-        feedback.pushInfo ('\nCalculando sobreposição')
+        feedback.pushInfo ('\nCalculando arquivos raster necessários')
         while (lat_norte > -34.0):
             lon_oeste = -75.0
             while (lon_oeste < -34.5):
@@ -205,19 +245,39 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
                     if ''.join(nome_raster) not in lista_rasters:
                         lista_rasters.append(''.join(nome_raster))
                     # feedback.pushInfo ('Arquivo: ' + ''.join(nome_raster))
-                            
-                # feat = QgsFeature()
-                # feat.setGeometry(poly)
-                # sink.addFeature(feat, QgsFeatureSink.FastInsert)
-                
+                        
                 # feedback.pushInfo ('Lat: ' + str(lat_norte) + ' Lon: ' + str(lon_oeste))
                 lon_oeste += 1.5
             lat_norte -= 1.0
         
         
+        # Calcula numero de etapas para barra de progresso
+        numeroDeEtapas = 5 + 2*len(lista_rasters)
+        total = 100.0 / numeroDeEtapas
+        progresso = 0
+        
+        # Atualiza progresso e barra
+        progresso += 1
+        feedback.setProgress(int(progresso * total))
+        
+        def downloadCanceled():
+            feedback.pushInfo('Download cancelado')
+            downloading = 0
+        def downloadCompleted(url: QUrl):
+            feedback.pushInfo('Download terminado')
+            downloading = 0
+        def downloadError(errorMessages: List[str]):
+            feedback.pushInfo('Erro no download')
+            feedback.pushInfo(errorMessages)
+            downloading = 0
+        def downloadProgress(bytesReceived: int, bytesTotal: int):
+            feedback.pushInfo('Baixando: ' + bytesReceived + '/' + bytesTotal)
+        def downloadExited ():
+            feedback.pushInfo('Terminou')
+            
         # Faz download dos rasters
         # TODO: mostrar progresso do download
-        # TODO: Resolver autenticação do Proxy
+        # TODO: Opeção para interromper download
         for raster in lista_rasters:
             feedback.pushInfo ('\nBuscando arquivo Raster: ' + raster + '.tif')
             if os.path.exists(os.path.join(raster_dir, raster + '.tif')):
@@ -225,10 +285,29 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
             else:
                 feedback.pushInfo ('Baixando arquivo: ' + raster)
                 raster_url = caminho_raster + raster + '.zip'
-                with requests.get(raster_url, allow_redirects = True) as r:
+                session = requests.Session()
+                if usar_proxy:
+                    session.trust_env = False
+                    session.proxies = proxies
+                    session.auth = HTTPProxyAuth(proxy_user, proxy_password)
+                with session.get(raster_url) as r:
+                # downloader = QgsFileDownloader(QUrl(raster_url), os.path.join(raster_dir, raster + '.zip'), delayStart=True)
+                # downloader.downloadCanceled.connect(downloadCanceled)
+                # downloader.downloadCompleted.connect(downloadCompleted)
+                # downloader.downloadError.connect(downloadError)
+                # downloader.downloadProgress.connect(downloadProgress)
+                # downloader.downloadExited.connect(downloadExited)
+                # downloader.startDownload()
+                # downloading = 1
+                # while downloading:
+                    # if feedback.isCanceled():
+                        # downloader.cancelDownload()
+                        # downloading = 0
+                        
                     r.raise_for_status()
                     with tempfile.TemporaryFile() as zip:
                         zip.write(r.content)
+                        #zip.write(open(os.path.join(raster_dir, raster + '.zip')))
                         with zipfile.ZipFile(zip) as zf:
                             files = zf.namelist()
                             for filename in files:
@@ -237,6 +316,10 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
                                 f = open(file_path, 'wb')
                                 f.write(zf.read(filename))
                                 f.close()
+                                
+            # Atualiza progresso e barra
+            progresso += 1
+            feedback.setProgress(int(progresso * total))
        
         # Para cada raster baixado faz o corte para a área de sobreposição com a área de interesse
         feedback.pushInfo ('\nRecortando arquivos raster para área de interesse')
@@ -251,11 +334,19 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
             #subprocess.run(f'gdalwarp -overwrite -s_srs EPSG:4326 -t_srs EPSG:4326 -of GTiff -cutline "{fn_poly}" -cl "area interesse" -crop_to_cutline -dstnodata 0.0 {fn_in} {fn_clip}')
             result = gdal.Warp(fn_clip, fn_in, cutlineWKT=geometria_area_interesse.asWkt(), cropToCutline=True, dstNodata=0, srcSRS='EPSG:4326', dstSRS='EPSG:4326', format='GTiff')
             result = None
+            
+            # Atualiza progresso e barra
+            progresso += 1
+            feedback.setProgress(int(progresso * total))
         
         # Unifica todas as partes recortadas dos rasters
         feedback.pushInfo ('\nUnificando arquivos raster da área de interesse')
         g = gdal.Warp(os.path.join(raster_dir, 'merged.tif'), raster_clips, format="GTiff")
         g = None
+        
+        # Atualiza progresso e barra
+        progresso += 1
+        feedback.setProgress(int(progresso * total))
        
         # Gera as curvas de nível a partir da imagem unificada
         feedback.pushInfo ('\nGerando curvas de nível')
@@ -277,6 +368,10 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
                 context, layer.fields(), layer.wkbType(), area_interesse_crs)
         for feature in layer.getFeatures():
             sink.addFeature(feature, QgsFeatureSink.FastInsert)
+        
+        # Atualiza progresso e barra
+        progresso += 1
+        feedback.setProgress(int(progresso * total))
             
         # Modifica a simbologia
         layer_curvas = QgsProcessingUtils.mapLayerFromString(dest_id, context)
@@ -303,8 +398,11 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
         layer_curvas.setRenderer(renderer)
         layer_curvas.triggerRepaint()
         
-        # Modifica os labels
-        # Configure label settings
+        # Atualiza progresso e barra
+        progresso += 1
+        feedback.setProgress(int(progresso * total))
+        
+        # Cria os rotulos
         # Cria mascara
         mask = QgsTextMaskSettings()
         mask.setSize(2)
@@ -320,17 +418,22 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
         settings.fieldName = f'CASE WHEN "ELEV" % {intervalo*5} = 0 THEN "ELEV" ELSE \'\' END'
         settings.enabled = True
         settings.drawLabels = True
+        settings.repeatDistance = 50
         settings.isExpression = True
         settings.placement = QgsPalLayerSettings.Line
         settings.placementFlags = QgsPalLayerSettings.OnLine
         settings.setFormat(textFormat)
-
+        # Grava configurações no layer e atualiza
         layer_curvas.setLabelsEnabled(True)
         layer_curvas.setLabeling(QgsVectorLayerSimpleLabeling(settings))
         layer_curvas.triggerRepaint()
         
+        # Atualiza progresso e barra
+        progresso += 1
+        feedback.setProgress(int(progresso * total))
+        
         # Ao final apaga diretório temporário
-        feedback.pushInfo ('\nFinalizou com sucesso\n')
+        # feedback.pushInfo ('\nFinalizou com sucesso\n')
         
         # Return the results of the algorithm. In this case our only result is
         # the feature sink which contains the processed features, but some
