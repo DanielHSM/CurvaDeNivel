@@ -6,7 +6,7 @@
 name=Gerar Curva de Nivel
 qgisMinimumVersion=3.0
 description=Gerador de curvas de nível no território brasileiro.
-version=0.1
+version=0.3
 author=Daniel Hulshof Saint Martin
 email=daniel.hulshof@gmail.com
 
