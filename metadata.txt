@@ -3,14 +3,14 @@
 # This file should be included when you package your plugin.# Mandatory items:
 
 [general]
-name=Gerar Curva de Nivel
-qgisMinimumVersion=3.0
-description=Gerador de curvas de nível no território brasileiro.
-version=0.3.1
+name=Curva de Nivel
+qgisMinimumVersion=3.16
+description=Cria curvas de nivel a partir de dados geomorféticos do INPE
+version=0.3.3
 author=Daniel Hulshof Saint Martin
 email=daniel.hulshof@gmail.com
 
-about=Este plugin cria curvas de nível no território brasileiro a partir de dados de altimetria obtidos no portal TOPODATA.
+about=Este plugin cria curvas de nível a partir de dados geomorféticos obtidos no portal TOPODATA do INPE.
 
 tracker=https://github.com/DanielHSM/CurvaDeNivel/issues
 repository=https://github.com/DanielHSM/CurvaDeNivel
@@ -20,14 +20,18 @@ repository=https://github.com/DanielHSM/CurvaDeNivel
 
 hasProcessingProvider=yes
 # Uncomment the following line and add your changelog:
-# changelog=
+changelog=
+    Versão 0.3.3
+    - Reprojeção do poligono de entrada para o EPSG:4326 para compatibilizar com os arquivos tif do INPE
+    Versão 0.3.2
+    - Adicionada versão obsoleta do construtor QgsSymbolLayerReference para atender versões anteriores ao QGIS 3.30
     Versão 0.3.1
     - Modificação nos argumentos da função gdal.warp para compatibilizar com versões mais antigas da biblioteca
     Versão 0.3.0 
     - Versão inicial para testes
 
 # Tags are comma separated with spaces allowed
-tags=python, contour, vector, curva, nivel, altimetria
+tags=python, gdal, curva, nivel, curva de nivel, altimetria, vetor, raster, contorno
 
 homepage=https://github.com/DanielHSM/CurvaDeNivel
 category=Analysis

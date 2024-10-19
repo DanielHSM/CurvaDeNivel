@@ -1,7 +1,7 @@
 #/***************************************************************************
-# CurvaNivelBR
+# CurvaDeNivel
 #
-# Este plugin cria curvas de nível no território brasileiro.
+# Cria curvas de nivel a partir de dados geomorféticos do INPE
 #							 -------------------
 #		begin				: 2024-10-08
 #		git sha				: $Format:%H$
@@ -38,13 +38,13 @@ LOCALES =
 # translation
 SOURCES = \
 	__init__.py \
-	curva_nivel_br.py 
+	curva_de_nivel.py 
 
-PLUGINNAME = curva_nivel_br
+PLUGINNAME = curva_de_nivel
 
 PY_FILES = \
 	__init__.py \
-	curva_nivel_br.py 
+	curva_de_nivel.py 
 
 UI_FILES = 
 
