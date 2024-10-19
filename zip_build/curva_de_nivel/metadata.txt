@@ -1,0 +1,55 @@
+# This file contains metadata for your plugin.
+
+# This file should be included when you package your plugin.# Mandatory items:
+
+[general]
+name=Curva de Nivel
+qgisMinimumVersion=3.16
+description=Cria curvas de nivel no territorio brasileiro
+version=0.3.3
+author=Daniel Hulshof Saint Martin
+email=daniel.hulshof@gmail.com
+
+about=Este plugin cria curvas de nível a partir de dados geomorfométricos obtidos no portal TOPODATA do INPE.
+
+tracker=https://github.com/DanielHSM/CurvaDeNivel/issues
+repository=https://github.com/DanielHSM/CurvaDeNivel
+# End of mandatory metadata
+
+# Recommended items:
+
+hasProcessingProvider=yes
+# Uncomment the following line and add your changelog:
+changelog=
+    Versão 0.3.3
+    - Reprojeção do poligono de entrada para o EPSG:4326 para compatibilizar com os arquivos tif do INPE
+    Versão 0.3.2
+    - Adicionada versão obsoleta do construtor QgsSymbolLayerReference para atender versões anteriores ao QGIS 3.30
+    Versão 0.3.1
+    - Modificação nos argumentos da função gdal.warp para compatibilizar com versões mais antigas da biblioteca
+    Versão 0.3.0 
+    - Versão inicial para testes
+
+# Tags are comma separated with spaces allowed
+tags=python, gdal, curva, nivel, curva de nivel, altimetria, vetor, raster, contorno
+
+homepage=https://github.com/DanielHSM/CurvaDeNivel
+category=Analysis
+icon=icon.png
+# experimental flag
+experimental=False
+
+# deprecated flag (applies to the whole plugin, not just a single version)
+deprecated=False
+
+# Since QGIS 3.8, a comma separated list of plugins to be installed
+# (or upgraded) can be specified.
+# Check the documentation for more information.
+# plugin_dependencies=
+
+Category of the plugin: Raster, Vector, Database or Web
+# category=
+
+# If the plugin can run on QGIS Server.
+server=False
+
