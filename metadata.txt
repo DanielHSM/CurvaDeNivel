@@ -5,12 +5,12 @@
 [general]
 name=Curva de Nivel
 qgisMinimumVersion=3.16
-description=Cria curvas de nivel a partir de dados geomorféticos do INPE
+description=Cria curvas de nivel no territorio brasileiro
 version=0.3.3
 author=Daniel Hulshof Saint Martin
 email=daniel.hulshof@gmail.com
 
-about=Este plugin cria curvas de nível a partir de dados geomorféticos obtidos no portal TOPODATA do INPE.
+about=Este plugin cria curvas de nível a partir de dados geomorfométricos obtidos no portal TOPODATA do INPE.
 
 tracker=https://github.com/DanielHSM/CurvaDeNivel/issues
 repository=https://github.com/DanielHSM/CurvaDeNivel
@@ -37,7 +37,7 @@ homepage=https://github.com/DanielHSM/CurvaDeNivel
 category=Analysis
 icon=icon.png
 # experimental flag
-experimental=True
+experimental=False
 
 # deprecated flag (applies to the whole plugin, not just a single version)
 deprecated=False

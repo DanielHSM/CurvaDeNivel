@@ -34,7 +34,7 @@ import os
 import inspect
 from qgis.PyQt.QtGui import QIcon
 from qgis.core import QgsProcessingProvider
-from .curva_nivel_br_algorithm import CurvaNivelBRAlgorithm
+from .curva_de_nivel_algorithm import CurvaDeNivelAlgorithm
 
 
 class CurvaDeNivelProvider(QgsProcessingProvider):
