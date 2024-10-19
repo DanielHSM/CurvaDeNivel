@@ -1,4 +1,4 @@
-<h1 align="center" id="title">Curva de Nivel</h1>
+<h1 align="center" id="title">Plugin Curva de Nivel</h1>
 
 <p id="description">Este plugin cria curvas de nível a partir de dados geomorfométricos do território brasileiro obtidos no portal TOPODATA do INPE.</p>
 
