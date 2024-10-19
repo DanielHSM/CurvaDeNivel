@@ -2,14 +2,11 @@
 
 <p id="description">Este plugin cria curvas de nível a partir de dados geomorfométricos do território brasileiro obtidos no portal TOPODATA do INPE.</p>
 
-  
-  
 <h2>🧐 Funcionalidades: </h2>
-
 
 *   Cria curvas de nível em todo território brasileiro a partir de uma área selecionada pelo usuário.
 *   Permite definir o intervalo entre as curvas de nível.
-*   Cria uma camada vetorial de linhas com simbologia, rótulos e máscara seguindo o padrão de cartas topográficas.
+*   Cria uma camada vetorial de linhas com simbologia, rótulos e máscara seguindo o padrão das cartas topográficas.
 *   Permite utilizar Proxy com autenticação em redes privadas.
 
 <h2>🛠️ Como usar:</h2>
@@ -24,8 +21,8 @@
   &nbsp;&nbsp;&nbsp;&nbsp;3.3   Escolha um nome para o perfil.<br>
   &nbsp;&nbsp;&nbsp;&nbsp;3.4   Entre com o nome do usuário.<br>
   &nbsp;&nbsp;&nbsp;&nbsp;3.5   Entre com a senha.<br>
-  &nbsp;&nbsp;&nbsp;&nbsp;3.6   Entre com o domínio e porta. Ex.: http://proxy.dpf.gov.br:8080</p>
-  &nbsp;&nbsp;&nbsp;&nbsp;3.6   Clique em Salvar e escolha o perfil criado na lista.</p>
+  &nbsp;&nbsp;&nbsp;&nbsp;3.6   Entre com o domínio e porta. Ex.: http://proxy.dpf.gov.br:8080<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;3.6   Clique em Salvar e escolha o perfil criado na lista de perfis.</p>
 
 <h2>🍰 Desenvolvedor:</h2>
 Daniel Hulshof Saint Martin
