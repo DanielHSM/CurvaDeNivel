@@ -47,14 +47,18 @@ from  qgis.PyQt.QtNetwork import (QNetworkProxy,
 from qgis.PyQt.QtCore import (QCoreApplication,
                                 QSettings,
                                 QUrl)
-from qgis.core import (QgsProcessing,
+from qgis.core import ( Qgis,
                         QgsApplication,
                         QgsAuthManager,
                         QgsAuthMethodConfig,
-                        QgsNetworkAccessManager,
+                        QgsCoordinateReferenceSystem,
                         QgsFeatureSink,
                         QgsFeature,
-                        QgsVectorLayer,
+                        QgsGeometry,
+                        QgsNetworkAccessManager,
+                        QgsPalLayerSettings,
+                        QgsPointXY,
+                        QgsProcessing,
                         QgsProcessingAlgorithm,
                         QgsProcessingParameterFeatureSource,
                         QgsProcessingParameterAuthConfig,
@@ -66,16 +70,15 @@ from qgis.core import (QgsProcessing,
                         QgsProcessingParameterColor,
                         QgsProcessingUtils,
                         QgsRuleBasedRenderer,
-                        QgsVectorLayerSimpleLabeling,
-                        QgsPalLayerSettings,
-                        QgsTextMaskSettings,
+                        QgsSymbol,
                         QgsSymbolLayerReference,
                         QgsSymbolLayerId,
                         QgsTextMaskSettings,
+                        QgsTextMaskSettings,
                         QgsTextFormat,
-                        QgsPointXY,
-                        QgsGeometry,
-                        QgsSymbol)
+                        QgsVectorLayer,
+                        QgsVectorLayerSimpleLabeling
+                        )
                     
 
                     
@@ -86,7 +89,6 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
     OUTPUT = 'OUTPUT'
     INPUT = 'INPUT'
     AREA_INTERESSE = 'AREA_INTERESSE'
-    AREA_INTERESSE_CRS = 'AREA_INTERESSE_CRS'
     INTERVALO = 'INTERVALO'
     COR_CURVAS = 'COR_CURVAS'
     AUTENTIC = 'AUTENTIC'
@@ -95,11 +97,6 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
 
         # Adiciona entrada da área de interesse
         self.addParameter(QgsProcessingParameterExtent(self.AREA_INTERESSE, "Área de Interesse (selecionar)", optional=False))
-
-        # Adiciona entrada para CRS da area de interesse
-        crs_param = QgsProcessingParameterCrs(self.AREA_INTERESSE_CRS, 'CRS da Área de Interesse', optional=True)
-        crs_param.setFlags(crs_param.flags() | QgsProcessingParameterDefinition.FlagHidden)
-        self.addParameter(crs_param)
         
         # Adiciona intervalo entre curvas
         self.addParameter(
@@ -139,18 +136,24 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
         
     def processAlgorithm(self, parameters, context, feedback):
 
-        # Carrega poligono da area de interesse
-        area_interesse = self.parameterAsExtent(parameters, self.AREA_INTERESSE, context)
+        # Carrega caminho da pasta de armazenamento temporario
+        temp_dir = os.path.join(os.getenv("TEMP"), 'CurvaNivelBR')
         
-        # Cria a geometria da área de interesse
+        # Cria pasta temporário para armazenar arquivos
+        os.makedirs(temp_dir, exist_ok = True)  
+        feedback.pushInfo ('\nAbrindo pasta temporária: ' + temp_dir)
+                
+        # Carrega poligono da area de interesse e cria shapefile temporario
+        area_interesse = self.parameterAsExtent(parameters, self.AREA_INTERESSE, context, crs=QgsCoordinateReferenceSystem("EPSG:4326"))
         geometria_area_interesse = QgsGeometry.fromRect(area_interesse)
-        
-        # Define CRS da area de interesse
-        area_interesse_crs = self.parameterAsExtentCrs(parameters, self.AREA_INTERESSE, context)
-        if self.AREA_INTERESSE_CRS in parameters:
-            c = self.parameterAsCrs(parameters, self.TARGET_AREA_CRS, context)
-            if c.isValid():
-                area_interesse_crs = c
+        caminho_shp_area_interesse = os.path.join(temp_dir, 'area_interesse.shp')
+        shp_area_interesse = ogr.GetDriverByName("ESRI Shapefile").CreateDataSource(caminho_shp_area_interesse)
+        layer_area_interesse = shp_area_interesse.CreateLayer("layer")
+        featureDefn = layer_area_interesse.GetLayerDefn()
+        feature = ogr.Feature(featureDefn)
+        feature.SetGeometry(ogr.CreateGeometryFromWkt(geometria_area_interesse.asWkt()))
+        layer_area_interesse.CreateFeature(feature)
+        shp_area_interesse = None
 
         # Carrega o intervalo entre as curvas de nível
         intervalo = self.parameterAsInt(parameters, self.INTERVALO, context)
@@ -180,13 +183,6 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
             except:
                 feedback.pushInfo ('\nErro ao carregar dados de autenticação de proxy')
 
-        # Carrega caminho da pasta de armazenamento temporario
-        temp_dir = os.path.join(os.getenv("TEMP"), 'CurvaNivelBR')
-        
-        # Cria pasta temporário para armazenar arquivos
-        os.makedirs(temp_dir, exist_ok = True)  
-        feedback.pushInfo ('\nAbrindo pasta temporária: ' + temp_dir)
-        
         # Define o caminho para baixar os rasters do INPE
         caminho_raster = 'http://www.dsr.inpe.br/topodata/data/geotiff/'
         
@@ -293,7 +289,7 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
                 fn_clip = os.path.join(temp_dir, raster + '_clip.tif')
                 
                 feedback.pushInfo ('Recortando: ' + raster + '.tif')
-                result = gdal.Warp(fn_clip, fn_in, cutlineWKT=geometria_area_interesse.asWkt(), cropToCutline=True, dstNodata=0, srcSRS='EPSG:4326', dstSRS='EPSG:4326', format='GTiff', callback=callback_gdal)
+                result = gdal.Warp(fn_clip, fn_in, cutlineDSName=caminho_shp_area_interesse, cropToCutline=True, dstNodata=0, srcSRS='EPSG:4326', dstSRS='EPSG:4326', format='GTiff', callback=callback_gdal)
                 result = None
                 
                 # Atualiza progresso e barra
@@ -333,7 +329,7 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
                 layer = QgsVectorLayer(caminho_shp_temp, 'Curvas De Nivel')
                 feedback.pushInfo ('Numero de curvas geradas: ' + str(len(list(layer.getFeatures()))))
                 (sink, dest_id) = self.parameterAsSink(parameters, self.OUTPUT,
-                        context, layer.fields(), layer.wkbType(), area_interesse_crs)
+                        context, layer.fields(), layer.wkbType(), QgsCoordinateReferenceSystem("EPSG:4326"))
                 for feature in layer.getFeatures():
                     sink.addFeature(feature, QgsFeatureSink.FastInsert)
                                         
@@ -353,7 +349,7 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
                 # Curva Normal           
                 rule = root_rule.children()[0].clone()
                 rule.setLabel("Curva Normal")
-                rule.setFilterExpression(f'"ELEV" % {intervalo*5} != 0')
+                rule.setFilterExpression('ELSE')
                 rule.symbol().setColor(cor_curva)
                 rule.symbol().setWidth(0.25)
                 root_rule.appendChild(rule)
@@ -361,12 +357,18 @@ class CurvaNivelBRAlgorithm(QgsProcessingAlgorithm):
                 # Salva as regras de curva
                 layer_curvas.setRenderer(renderer)
                 layer_curvas.triggerRepaint()
-                                
+                
                 # Cria os rotulos e mascara
                 mask = QgsTextMaskSettings()
                 mask.setSize(2)
-                mask.setMaskedSymbolLayers([QgsSymbolLayerReference(layer_curvas.id(), rule.symbol().symbolLayer(0).id())])
+                if Qgis.QGIS_VERSION_INT < 33000:
+                    mask.setMaskedSymbolLayers([QgsSymbolLayerReference(layer_curvas.id(), QgsSymbolLayerId(root_rule.children()[0].ruleKey(), 0)), ])
+                else:
+                    mask.setMaskedSymbolLayers([QgsSymbolLayerReference(layer_curvas.id(), rule.symbol().symbolLayer(0).id())])
+                    
                 mask.setEnabled(True)
+
+               
                 # Configura texto
                 textFormat = QgsTextFormat()
                 textFormat.setSize(10)
