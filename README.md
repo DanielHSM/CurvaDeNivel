@@ -22,7 +22,8 @@
   &nbsp;&nbsp;&nbsp;&nbsp;3.4   Entre com o nome do usuário.<br>
   &nbsp;&nbsp;&nbsp;&nbsp;3.5   Entre com a senha.<br>
   &nbsp;&nbsp;&nbsp;&nbsp;3.6   Entre com o domínio e porta. Ex.: http://proxy.dpf.gov.br:8080<br>
-  &nbsp;&nbsp;&nbsp;&nbsp;3.6   Clique em Salvar e escolha o perfil criado na lista de perfis.</p>
+  &nbsp;&nbsp;&nbsp;&nbsp;3.6   Clique em Salvar e escolha o perfil criado na lista de perfis.</br>
+  &nbsp;&nbsp;&nbsp;&nbsp;3.7   Clique em Executar. O plugin criará uma camada vetorial temporária com o resultado.</p>
 
 <h2>🍰 Desenvolvedor:</h2>
 Daniel Hulshof Saint Martin
