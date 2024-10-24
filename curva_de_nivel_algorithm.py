@@ -114,6 +114,8 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
     
     # Carrega caminho da pasta de armazenamento temporario
     temp_dir = os.path.join(os.getenv("TEMP"), 'CurvaDeNivel')
+    status_total = 0.0
+    progresso = 0.0
 
     def initAlgorithm(self, config):
         
@@ -139,7 +141,7 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
                 name = self.SUAVIZACAO,
                 description = self.tr('Nível de suavização das curvas'),
                 options = ['Nenhum', 'Baixo', 'Médio', 'Alto'], 
-                defaultValue = 'Nenhum', 
+                defaultValue = 'Médio', 
                 usesStaticStrings = True,
                 optional = False
             )
@@ -258,19 +260,19 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
                 
         # Calcula numero de etapas para barra de progresso
         numeroDeEtapas = 5 + 2*len(lista_rasters)
-        total = 100.0 / numeroDeEtapas
-        progresso = 0.0
+        self.status_total = 100.0 / numeroDeEtapas
+        self.progresso = 0.0
         
         # Atualiza progresso e barra
-        progresso += 1
-        feedback.setProgress(int(progresso * total))
+        self.progresso += 1
+        feedback.setProgress(int(self.progresso * self.status_total))
 
         # Define funções de callback do download
         def proxyAuthenticationRequired(proxy, authenticator):
             feedback.pushInfo('Solicitando autenticação de proxy')
         def downloadProgress(requestId: int, bytesReceived: int, bytesTotal: int):
-            progresso_download = progresso + bytesReceived/bytesTotal
-            feedback.setProgress(int(progresso_download * total))
+            progresso_download = self.progresso + bytesReceived/bytesTotal
+            feedback.setProgress(int(progresso_download * self.status_total))
             
         # Busca os rasters necessários na memória, se não encontrar faz o download
         for raster in lista_rasters[:]:
@@ -307,8 +309,8 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
                     lista_rasters.remove(raster)
                                 
             # Atualiza progresso e barra
-            progresso += 1
-            feedback.setProgress(int(progresso * total))
+            self.progresso += 1
+            feedback.setProgress(int(self.progresso * self.status_total))
        
         # Verifica se baixou algum arquivo para prosseguir com processamento, mesmo que parcial
         if (len(lista_rasters)):
@@ -318,8 +320,8 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
             
             # Define callback da biblioteca gdal
             def callback_gdal(info, *args):
-                progresso_warp = progresso + info
-                feedback.setProgress(int(progresso_warp * total))
+                progresso_warp = self.progresso + info
+                feedback.setProgress(int(progresso_warp * self.status_total))
 
             for raster in lista_rasters:                    
                 raster_clips.append(os.path.join(self.temp_dir, raster + '_clip.tif'))
@@ -335,8 +337,8 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
                     return {self.OUTPUT: None}
                 
                 # Atualiza progresso e barra
-                progresso += 1
-                feedback.setProgress(int(progresso * total))
+                self.progresso += 1
+                feedback.setProgress(int(self.progresso * self.status_total))
             
             # Verifica se existem rasters cortados para unificar
             if (len(raster_clips)):
@@ -350,8 +352,8 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
                     return {self.OUTPUT: None}
                 
                 # Atualiza progresso e barra
-                progresso += 1
-                feedback.setProgress(int(progresso * total))
+                self.progresso += 1
+                feedback.setProgress(int(self.progresso * self.status_total))
                 
                 # Faz suavização
                 self.suavizaTerreno (suavizar, feedback)
@@ -361,8 +363,8 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
                     return {self.OUTPUT: None}
           
                 # Atualiza progresso e barra
-                progresso += 1
-                feedback.setProgress(int(progresso * total))
+                self.progresso += 1
+                feedback.setProgress(int(self.progresso * self.status_total))
                
                 # Gera as curvas de nível a partir da imagem unificada
                 feedback.pushInfo ('\nGerando curvas de nível')
@@ -383,8 +385,8 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
                     return {self.OUTPUT: None}
           
                 # Atualiza progresso e barra
-                progresso += 1
-                feedback.setProgress(int(progresso * total))
+                self.progresso += 1
+                feedback.setProgress(int(self.progresso * self.status_total))
                 
                 # Grava dados no arquivo de saída
                 layer = QgsVectorLayer(caminho_shp_temp, 'Curvas De Nivel')
@@ -450,8 +452,8 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
                 layer_curvas.triggerRepaint()
                 
                 # Atualiza progresso e barra
-                progresso += 1
-                feedback.setProgress(int(progresso * total))
+                self.progresso += 1
+                feedback.setProgress(int(self.progresso * self.status_total))
                 
                 feedback.pushInfo ('\n')
                 #retorna vetor de resultado com as curvas de nivel
@@ -493,11 +495,15 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
         file.write(data)
         file.close()
         
+        feedback.setProgress(int((self.progresso + 0.2) * self.status_total))
+        
         # Calcula TPI
         gdal.DEMProcessing(destName=f'{path}dem_tpi.tif', srcDS=inputDEM, processing='TPI')
         
         # Reclassifica TPI
         Calc(calc="((-1)*A*(A<0))+(A*(A>=0))", A=f'{path}dem_tpi.tif', outfile=f'{path}tpi_pos.tif', NoDataValue=-32768, overwrite=True)
+        
+        feedback.setProgress(int((self.progresso + 0.4) * self.status_total))
         
         # gera VRT do TPI
         gdal.BuildVRT(f'{path}tpi_blur_3x3.vrt', f'{path}tpi_pos.tif')
@@ -512,6 +518,8 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
         file.write(data)
         file.close()
         
+        feedback.setProgress(int((self.progresso + 0.6) * self.status_total))
+        
         # Pega informações sobre o vrt do tpi
         info = gdal.Info(ds=f'{path}tpi_blur_3x3.vrt', options="-hist -stats")
 
@@ -522,7 +530,9 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
         except:
             gdal.Translate (destName=f'{path}tpi_norm.tif', srcDS=f'{path}tpi_blur_3x3.vrt')
             
-            
+         
+        feedback.setProgress(int((self.progresso + 0.8) * self.status_total))     
+        
         # Faz a suavização usando as entradas suavizadas e o TPI reclassificado
         match suavizar:
             case "Baixo":
@@ -559,6 +569,9 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
                 file.close()
                 
                 Calc(calc="A*B+(1-A)*C", A=f'{path}tpi_norm.tif', B=f'{path}dem_blur_3x3.vrt', C=f'{path}dem_blur_13x13.vrt', outfile=f'{path}merged.tif', overwrite=True)
+                
+        
+        feedback.setProgress(int((self.progresso + 1.0) * self.status_total))
        
     def icon(self):
         cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
