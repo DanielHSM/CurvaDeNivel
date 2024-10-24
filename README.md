@@ -6,6 +6,7 @@
 
 *   Cria curvas de nível em todo território brasileiro a partir de uma área selecionada pelo usuário.
 *   Permite definir o intervalo entre as curvas de nível.
+*   Possui três opções de suavização para criar curvas de nível mais limpas.
 *   Cria uma camada vetorial de linhas com simbologia, rótulos e máscara seguindo o padrão das cartas topográficas.
 *   Permite utilizar Proxy com autenticação em redes privadas.
 
@@ -15,15 +16,18 @@
 
 <p>2. Defina o intervalo entre as curvas. O intervalo padrão é de 10 metros.</p>
 
-<p>3. Escolha um perfil de autenticação de Proxy caso necessário. Para criar um novo perfil:<br>
-  &nbsp;&nbsp;&nbsp;&nbsp;3.1   Clique no botão +.<br>
-  &nbsp;&nbsp;&nbsp;&nbsp;3.2   Escolha o tipo <i>Basic Authentication</i><br>
-  &nbsp;&nbsp;&nbsp;&nbsp;3.3   Escolha um nome para o perfil.<br>
-  &nbsp;&nbsp;&nbsp;&nbsp;3.4   Entre com o nome do usuário.<br>
-  &nbsp;&nbsp;&nbsp;&nbsp;3.5   Entre com a senha.<br>
-  &nbsp;&nbsp;&nbsp;&nbsp;3.6   Entre com o domínio e porta. Ex.: http://proxy.dpf.gov.br:8080<br>
-  &nbsp;&nbsp;&nbsp;&nbsp;3.6   Clique em Salvar e escolha o perfil criado na lista de perfis.</p>
-<p>4. Clique em Executar. O plugin criará uma camada vetorial temporária com o resultado.</p>
+<p>3. Escolha o nível de suavização. O padrão é nível médio.</p>
+
+<p>4. Escolha um perfil de autenticação de Proxy caso necessário. Para criar um novo perfil:<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;4.1   Clique no botão +.<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;4.2   Escolha o tipo <i>Basic Authentication</i><br>
+  &nbsp;&nbsp;&nbsp;&nbsp;4.3   Escolha um nome para o perfil.<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;4.4   Entre com o nome do usuário.<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;4.5   Entre com a senha.<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;4.6   Entre com o domínio e porta. Ex.: http://proxy.dpf.gov.br:8080<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;4.7   Clique em Salvar e escolha o perfil criado na lista de perfis.</p>
+  
+<p>5. Clique em Executar. O plugin criará uma camada vetorial temporária com o resultado.</p>
 
 <h2>🍰 Sobre o Desenvolvedor:</h2>
 Daniel Hulshof Saint Martin é Agente de Polícia Federal, atualmente lotado no Grupo de Bombas e Explosivos - GBE, em Brasília/DF. 
@@ -32,9 +36,10 @@ Atua também como professor da Academia Nacional de Polícia, na cadeira de de O
 <h2>💻 Recursos e tecnologias utilizados nesse plugin:</h2>
 
 *   Portal TOPODATA do INPE - http://www.dsr.inpe.br/topodata/
-*   Biblioteca GDAL
+*   Smooth-Contours - https://github.com/MathiasGroebe/Smooth-Contours
+*   Biblioteca GDAL - https://gdal.org/en/latest/
 *   PyQGIS
-*   QGIS (testado nas versões 3.16 e superior)
+*   QGIS
 
 <h2>🛡️ Licença:</h2>
 
