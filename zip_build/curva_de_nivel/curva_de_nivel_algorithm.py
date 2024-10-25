@@ -31,6 +31,7 @@ __copyright__ = '(C) 2024 by Daniel Hulshof Saint Martin'
 __revision__ = '$Format:%H$'
 
 import os
+import re
 import inspect
 from urllib.parse import urlparse  
 from requests.auth import HTTPProxyAuth
@@ -40,6 +41,7 @@ import processing
 from typing import List
 from osgeo import gdal, ogr
 import osgeo_utils.gdal_merge
+from .gdal_calc import Calc
 from qgis.PyQt.QtGui import (QIcon,
                             QColor)
 from  qgis.PyQt.QtNetwork import (QNetworkProxy,
@@ -69,6 +71,7 @@ from qgis.core import ( Qgis,
                         QgsProcessingParameterDefinition,
                         QgsProcessingParameterNumber,
                         QgsProcessingParameterColor,
+                        QgsProcessingParameterEnum,
                         QgsProcessingUtils,
                         QgsRuleBasedRenderer,
                         QgsSymbol,
@@ -82,6 +85,21 @@ from qgis.core import ( Qgis,
                         )
 
 
+
+'''
+    TODO: 
+
+    Adicionar suavização das curvas de nivel. Ferramentas necessárias:
+    - gdal_translate
+    - gdaldem
+    - gdalbuildvrt
+    - gdalinfo
+    - gdal_calc.py
+    - gdal_contour
+    - ogr2ogr
+
+'''
+
 class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
 
     # Define constantes
@@ -89,8 +107,15 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
     INPUT = 'INPUT'
     AREA_INTERESSE = 'AREA_INTERESSE'
     INTERVALO = 'INTERVALO'
+    SUAVIZACAO = 'SUAVIZACAO'
     COR_CURVAS = 'COR_CURVAS'
     AUTENTIC = 'AUTENTIC'
+    
+    
+    # Carrega caminho da pasta de armazenamento temporario
+    temp_dir = os.path.join(os.getenv("TEMP"), 'CurvaDeNivel')
+    status_total = 0.0
+    progresso = 0.0
 
     def initAlgorithm(self, config):
         
@@ -106,6 +131,18 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
                 defaultValue = 10,
                 minValue=1, 
                 maxValue=1000, 
+                optional = False
+            )
+        )
+        
+        # Adiciona nível de suavização
+        self.addParameter(
+            QgsProcessingParameterEnum(
+                name = self.SUAVIZACAO,
+                description = self.tr('Nível de suavização das curvas'),
+                options = ['Nenhum', 'Baixo', 'Médio', 'Alto'], 
+                defaultValue = 'Médio', 
+                usesStaticStrings = True,
                 optional = False
             )
         )
@@ -134,18 +171,15 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT,self.tr('Curvas de Nível')))
 
     def processAlgorithm(self, parameters, context, feedback):
-
-        # Carrega caminho da pasta de armazenamento temporario
-        temp_dir = os.path.join(os.getenv("TEMP"), 'CurvaDeNivel')
         
         # Cria pasta temporário para armazenar arquivos
-        os.makedirs(temp_dir, exist_ok = True)  
-        feedback.pushInfo ('\nAbrindo pasta temporária: ' + temp_dir)
+        os.makedirs(self.temp_dir, exist_ok = True)  
+        feedback.pushInfo ('\nAbrindo pasta temporária: ' + self.temp_dir)
                 
         # Carrega poligono da area de interesse e cria shapefile temporario
         area_interesse = self.parameterAsExtent(parameters, self.AREA_INTERESSE, context, crs=QgsCoordinateReferenceSystem("EPSG:4326"))
         geometria_area_interesse = QgsGeometry.fromRect(area_interesse)
-        caminho_shp_area_interesse = os.path.join(temp_dir, 'area_interesse.shp')
+        caminho_shp_area_interesse = os.path.join(self.temp_dir, 'area_interesse.shp')
         shp_area_interesse = ogr.GetDriverByName("ESRI Shapefile").CreateDataSource(caminho_shp_area_interesse)
         layer_area_interesse = shp_area_interesse.CreateLayer("layer")
         featureDefn = layer_area_interesse.GetLayerDefn()
@@ -156,6 +190,9 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
 
         # Carrega o intervalo entre as curvas de nível
         intervalo = self.parameterAsInt(parameters, self.INTERVALO, context)
+        
+        # Carrega a opção de suavização das curvas
+        suavizar = self.parameterAsString(parameters, self.SUAVIZACAO, context)
         
         # Carrega a cor das curvas de nível
         cor_curva = self.parameterAsColor(parameters, self.COR_CURVAS, context)
@@ -222,25 +259,29 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
             lat_norte -= 1.0
                 
         # Calcula numero de etapas para barra de progresso
-        numeroDeEtapas = 4 + 2*len(lista_rasters)
-        total = 100.0 / numeroDeEtapas
-        progresso = 0.0
+        numeroDeEtapas = 5 + 2*len(lista_rasters)
+        self.status_total = 100.0 / numeroDeEtapas
+        self.progresso = 0.0
         
         # Atualiza progresso e barra
-        progresso += 1
-        feedback.setProgress(int(progresso * total))
+        self.progresso += 1
+        feedback.setProgress(int(self.progresso * self.status_total))
 
         # Define funções de callback do download
         def proxyAuthenticationRequired(proxy, authenticator):
             feedback.pushInfo('Solicitando autenticação de proxy')
         def downloadProgress(requestId: int, bytesReceived: int, bytesTotal: int):
-            progresso_download = progresso + bytesReceived/bytesTotal
-            feedback.setProgress(int(progresso_download * total))
+            progresso_download = self.progresso + bytesReceived/bytesTotal
+            feedback.setProgress(int(progresso_download * self.status_total))
             
         # Busca os rasters necessários na memória, se não encontrar faz o download
         for raster in lista_rasters[:]:
+            if feedback.isCanceled():
+                feedback.pushInfo ('\nCancelado pelo usuário')
+                return {self.OUTPUT: None}
+            
             feedback.pushInfo ('\nBuscando arquivo Raster: ' + raster + '.tif')
-            if os.path.exists(os.path.join(temp_dir, raster + '.tif')):
+            if os.path.exists(os.path.join(self.temp_dir, raster + '.tif')):
                 feedback.pushInfo ('Arquivo localizado no disco')
             else:
                 feedback.pushInfo ('Baixando arquivo raster: ' + raster + '.zip')
@@ -259,7 +300,7 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
                             files = zf.namelist()
                             for filename in files:
                                 feedback.pushInfo ('Descompactando arquivo: ' + filename)
-                                file_path = os.path.join(temp_dir, filename)
+                                file_path = os.path.join(self.temp_dir, filename)
                                 f = open(file_path, 'wb')
                                 f.write(zf.read(filename))
                                 f.close()
@@ -268,8 +309,8 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
                     lista_rasters.remove(raster)
                                 
             # Atualiza progresso e barra
-            progresso += 1
-            feedback.setProgress(int(progresso * total))
+            self.progresso += 1
+            feedback.setProgress(int(self.progresso * self.status_total))
        
         # Verifica se baixou algum arquivo para prosseguir com processamento, mesmo que parcial
         if (len(lista_rasters)):
@@ -279,50 +320,73 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
             
             # Define callback da biblioteca gdal
             def callback_gdal(info, *args):
-                progresso_warp = progresso + info
-                feedback.setProgress(int(progresso_warp * total))
+                progresso_warp = self.progresso + info
+                feedback.setProgress(int(progresso_warp * self.status_total))
 
-            for raster in lista_rasters:
-                raster_clips.append(os.path.join(temp_dir, raster + '_clip.tif'))
-                fn_in = os.path.join(temp_dir, raster + '.tif')
-                fn_clip = os.path.join(temp_dir, raster + '_clip.tif')
+            for raster in lista_rasters:                    
+                raster_clips.append(os.path.join(self.temp_dir, raster + '_clip.tif'))
+                fn_in = os.path.join(self.temp_dir, raster + '.tif')
+                fn_clip = os.path.join(self.temp_dir, raster + '_clip.tif')
                 
                 feedback.pushInfo ('Recortando: ' + raster + '.tif')
                 result = gdal.Warp(fn_clip, fn_in, cutlineDSName=caminho_shp_area_interesse, cropToCutline=True, dstNodata=0, srcSRS='EPSG:4326', dstSRS='EPSG:4326', format='GTiff', callback=callback_gdal)
                 result = None
                 
+                if feedback.isCanceled():
+                    feedback.pushInfo ('\nCancelado pelo usuário')
+                    return {self.OUTPUT: None}
+                
                 # Atualiza progresso e barra
-                progresso += 1
-                feedback.setProgress(int(progresso * total))
+                self.progresso += 1
+                feedback.setProgress(int(self.progresso * self.status_total))
             
             # Verifica se existem rasters cortados para unificar
             if (len(raster_clips)):
                 # Unifica todas as partes recortadas dos rasters
                 feedback.pushInfo ('\nJuntando arquivos raster recortados pela área de interesse')
-                g = gdal.Warp(os.path.join(temp_dir, 'merged.tif'), raster_clips, format="GTiff", callback=callback_gdal)
+                g = gdal.Warp(os.path.join(self.temp_dir, 'merged.tif'), raster_clips, format="GTiff", callback=callback_gdal)
                 g = None
                 
+                if feedback.isCanceled():
+                    feedback.pushInfo ('\nCancelado pelo usuário')
+                    return {self.OUTPUT: None}
+                
                 # Atualiza progresso e barra
-                progresso += 1
-                feedback.setProgress(int(progresso * total))
+                self.progresso += 1
+                feedback.setProgress(int(self.progresso * self.status_total))
+                
+                # Faz suavização
+                self.suavizaTerreno (suavizar, feedback)
+                
+                if feedback.isCanceled():
+                    feedback.pushInfo ('\nCancelado pelo usuário')
+                    return {self.OUTPUT: None}
+          
+                # Atualiza progresso e barra
+                self.progresso += 1
+                feedback.setProgress(int(self.progresso * self.status_total))
                
                 # Gera as curvas de nível a partir da imagem unificada
                 feedback.pushInfo ('\nGerando curvas de nível')
-                caminho_shp_temp = os.path.join(temp_dir, 'curvasdenivel.shp')
+                caminho_shp_temp = os.path.join(self.temp_dir, 'curvasdenivel.shp')
                 shp_temp = ogr.GetDriverByName("ESRI Shapefile").CreateDataSource(caminho_shp_temp)
                 layer_temp = shp_temp.CreateLayer("Curvas De Nivel")
                 field_defn = ogr.FieldDefn("ID", ogr.OFTInteger)
                 layer_temp.CreateField(field_defn)
                 field_defn = ogr.FieldDefn("ELEV", ogr.OFTReal)
                 layer_temp.CreateField(field_defn)
-                raster_merged = gdal.Open(os.path.join(temp_dir, 'merged.tif'))
+                raster_merged = gdal.Open(os.path.join(self.temp_dir, 'merged.tif'))
                 gdal.ContourGenerate(raster_merged.GetRasterBand(1), intervalo, 0, [], 0, 0, layer_temp, 0, 1, callback=callback_gdal)
                 shp_temp = None
                 raster_merged = None
+                
+                if feedback.isCanceled():
+                    feedback.pushInfo ('\nCancelado pelo usuário')
+                    return {self.OUTPUT: None}
           
                 # Atualiza progresso e barra
-                progresso += 1
-                feedback.setProgress(int(progresso * total))
+                self.progresso += 1
+                feedback.setProgress(int(self.progresso * self.status_total))
                 
                 # Grava dados no arquivo de saída
                 layer = QgsVectorLayer(caminho_shp_temp, 'Curvas De Nivel')
@@ -388,18 +452,127 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
                 layer_curvas.triggerRepaint()
                 
                 # Atualiza progresso e barra
-                progresso += 1
-                feedback.setProgress(int(progresso * total))
+                self.progresso += 1
+                feedback.setProgress(int(self.progresso * self.status_total))
                 
-                # feedback.pushInfo ('\nFinalizou\n')
+                feedback.pushInfo ('\n')
                 #retorna vetor de resultado com as curvas de nivel
                 return {self.OUTPUT: dest_id}
         else:
-            feedback.pushInfo ('\nErro ao baixar os arquivos raster\n')
+            feedback.pushInfo ('\nErro ao baixar os arquivos raster')
         
         # Retorna sem vetor de resultado
         return {self.OUTPUT: None}
 
+    def suavizaTerreno (self, suavizar, feedback):
+        
+        # TODO: Adicionar progressão da barra de status
+        
+        if suavizar == 'Nenhum':
+            return
+            
+        feedback.pushInfo ('\nCalculando suavização')
+            
+        # Inicializa variáveis
+        inputDEM = os.path.join(self.temp_dir, 'merged.tif')
+        path = self.temp_dir + "\\"
+        method = "gaussain"
+        smooth = 9
+                
+        # Gera tmp_dem.tif
+        gdal.Translate (f'{path}dem.tif', f'{inputDEM}', options="-ot Float32 -a_nodata -32768")
+                
+        # Constroi VRT 3x3
+        gdal.BuildVRT(f'{path}dem_blur_3x3.vrt', f'{path}dem.tif')
+        
+        file = open(path + "dem_blur_3x3.vrt", "rt")
+        data = file.read()
+        data = data.replace("ComplexSource", "KernelFilteredSource")
+        data = data.replace("<NODATA>-32768</NODATA>", '<NODATA>-32768</NODATA><Kernel normalized="1"><Size>3</Size><Coefs>0.077847 0.123317 0.077847 0.123317 0.195346 0.123317 0.077847 0.123317 0.077847</Coefs></Kernel>')
+        file.close()
+
+        file = open(path + "dem_blur_3x3.vrt", "wt")
+        file.write(data)
+        file.close()
+        
+        feedback.setProgress(int((self.progresso + 0.2) * self.status_total))
+        
+        # Calcula TPI
+        gdal.DEMProcessing(destName=f'{path}dem_tpi.tif', srcDS=inputDEM, processing='TPI')
+        
+        # Reclassifica TPI
+        Calc(calc="((-1)*A*(A<0))+(A*(A>=0))", A=f'{path}dem_tpi.tif', outfile=f'{path}tpi_pos.tif', NoDataValue=-32768, overwrite=True)
+        
+        feedback.setProgress(int((self.progresso + 0.4) * self.status_total))
+        
+        # gera VRT do TPI
+        gdal.BuildVRT(f'{path}tpi_blur_3x3.vrt', f'{path}tpi_pos.tif')
+        
+        file = open(path + "tpi_blur_3x3.vrt", "rt")
+        data = file.read()
+        data = data.replace("ComplexSource", "KernelFilteredSource")
+        data = data.replace("<NODATA>-32768</NODATA>", '<NODATA>-32768</NODATA><Kernel normalized="1"><Size>9</Size><Coefs>0 0.000001 0.000014 0.000055 0.000088 0.000055 0.000014 0.000001 0 0.000001 0.000036 0.000362 0.001445 0.002289 0.001445 0.000362 0.000036 0.000001 0.000014 0.000362 0.003672 0.014648 0.023205 0.014648 0.003672 0.000362 0.000014 0.000055 0.001445 0.014648 0.058434 0.092566 0.058434 0.014648 0.001445 0.000055 0.000088 0.002289 0.023205 0.092566 0.146634 0.092566 0.023205 0.002289 0.000088 0.000055 0.001445 0.014648 0.058434 0.092566 0.058434 0.014648 0.001445 0.000055 0.000014 0.000362 0.003672 0.014648 0.023205 0.014648 0.003672 0.000362 0.000014 0.000001 0.000036 0.000362 0.001445 0.002289 0.001445 0.000362 0.000036 0.000001 0 0.000001 0.000014 0.000055 0.000088 0.000055 0.000014 0.000001 0</Coefs></Kernel>')
+        file.close()
+
+        file = open(path + "tpi_blur_3x3.vrt", "wt")
+        file.write(data)
+        file.close()
+        
+        feedback.setProgress(int((self.progresso + 0.6) * self.status_total))
+        
+        # Pega informações sobre o vrt do tpi
+        info = gdal.Info(ds=f'{path}tpi_blur_3x3.vrt', options="-hist -stats")
+
+        # Normaliza o vrt do tpi
+        try:
+            maxValue = re.findall('[0-9]*\.[0-9]*', re.findall('STATISTICS_MAXIMUM=\d*.\d*', info)[0])[0]
+            Calc(calc=f"A / {maxValue}", A=f'{path}tpi_blur_3x3.vrt', outfile=f'{path}tpi_norm.tif', NoDataValue=-32768, overwrite=True)
+        except:
+            gdal.Translate (destName=f'{path}tpi_norm.tif', srcDS=f'{path}tpi_blur_3x3.vrt')
+            
+         
+        feedback.setProgress(int((self.progresso + 0.8) * self.status_total))     
+        
+        # Faz a suavização usando as entradas suavizadas e o TPI reclassificado
+        match suavizar:
+            case "Baixo":
+                Calc(calc="A*B+(1-A)*C", A=f'{path}tpi_norm.tif', B=f'{path}dem_blur_3x3.vrt', C=f'{path}dem_blur_3x3.vrt', outfile=f'{path}merged.tif', overwrite=True)
+                
+            case "Médio":
+                # Constroi VRT 7x7
+                gdal.BuildVRT(f'{path}dem_blur_7x7.vrt', f'{path}dem.tif')
+
+                file = open(path + "dem_blur_7x7.vrt", "rt")
+                data = file.read()
+                data = data.replace("ComplexSource", "KernelFilteredSource")
+                data = data.replace("<NODATA>-32768</NODATA>", '<NODATA>-32768</NODATA><Kernel normalized="1"><Size>7</Size><Coefs>0.000036 0.000363 0.001446 0.002291 0.001446 0.000363 0.000036 0.000363 0.003676 0.014662 0.023226 0.014662 0.003676 0.000363 0.001446 0.014662 0.058488 0.092651 0.058488 0.014662 0.001446 0.002291 0.023226 0.092651 0.146768 0.092651 0.023226 0.002291 0.001446 0.014662 0.058488 0.092651 0.058488 0.014662 0.001446 0.000363 0.003676 0.014662 0.023226 0.014662 0.003676 0.000363 0.000036 0.000363 0.001446 0.002291 0.001446 0.000363 0.000036</Coefs></Kernel>')
+                file.close()
+
+                file = open(path + "dem_blur_7x7.vrt", "wt")
+                file.write(data)
+                file.close()
+                
+                Calc(calc="A*B+(1-A)*C", A=f'{path}tpi_norm.tif', B=f'{path}dem_blur_3x3.vrt', C=f'{path}dem_blur_7x7.vrt', outfile=f'{path}merged.tif', overwrite=True)
+                
+            case "Alto":
+                # Constroi VRT 13x13
+                gdal.BuildVRT(f'{path}dem_blur_13x13.vrt', f'{path}dem.tif')
+
+                file = open(path + "dem_blur_13x13.vrt", "rt")
+                data = file.read()
+                data = data.replace("ComplexSource", "KernelFilteredSource")
+                data = data.replace("<NODATA>-32768</NODATA>", '<NODATA>-32768</NODATA><Kernel normalized="1"><Size>13</Size><Coefs>0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.000001 0.000001 0.000001 0 0 0 0 0 0 0 0 0.000001 0.000014 0.000055 0.000088 0.000055 0.000014 0.000001 0 0 0 0 0 0.000001 0.000036 0.000362 0.001445 0.002289 0.001445 0.000362 0.000036 0.000001 0 0 0 0 0.000014 0.000362 0.003672 0.014648 0.023204 0.014648 0.003672 0.000362 0.000014 0 0 0 0.000001 0.000055 0.001445 0.014648 0.058433 0.092564 0.058433 0.014648 0.001445 0.000055 0.000001 0 0 0.000001 0.000088 0.002289 0.023204 0.092564 0.146632 0.092564 0.023204 0.002289 0.000088 0.000001 0 0 0.000001 0.000055 0.001445 0.014648 0.058433 0.092564 0.058433 0.014648 0.001445 0.000055 0.000001 0 0 0 0.000014 0.000362 0.003672 0.014648 0.023204 0.014648 0.003672 0.000362 0.000014 0 0 0 0 0.000001 0.000036 0.000362 0.001445 0.002289 0.001445 0.000362 0.000036 0.000001 0 0 0 0 0 0.000001 0.000014 0.000055 0.000088 0.000055 0.000014 0.000001 0 0 0 0 0 0 0 0 0.000001 0.000001 0.000001 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Coefs></Kernel>')
+                file.close()
+
+                file = open(path + "dem_blur_13x13.vrt", "wt")
+                file.write(data)
+                file.close()
+                
+                Calc(calc="A*B+(1-A)*C", A=f'{path}tpi_norm.tif', B=f'{path}dem_blur_3x3.vrt', C=f'{path}dem_blur_13x13.vrt', outfile=f'{path}merged.tif', overwrite=True)
+                
+        
+        feedback.setProgress(int((self.progresso + 1.0) * self.status_total))
+       
     def icon(self):
         cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
         icon = QIcon(os.path.join(os.path.join(cmd_folder, 'logo.png')))

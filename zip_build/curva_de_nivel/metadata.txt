@@ -6,7 +6,7 @@
 name=Curva de Nivel
 qgisMinimumVersion=3.16
 description=Cria curvas de nivel no territorio brasileiro
-version=0.4
+version=0.5
 author=Daniel Hulshof Saint Martin
 email=daniel.hulshof@gmail.com
 
@@ -21,6 +21,8 @@ repository=https://github.com/DanielHSM/CurvaDeNivel
 hasProcessingProvider=yes
 # Uncomment the following line and add your changelog:
 changelog=
+    Versão 0.5
+    - Adicionada a opção de suavização das curvas de nível
     Versão 0.4
     - Versão de lançamento no repositório de plugins
     Versão 0.3.3
