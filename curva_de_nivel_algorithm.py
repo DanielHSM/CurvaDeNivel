@@ -534,11 +534,11 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
         feedback.setProgress(int((self.progresso + 0.8) * self.status_total))     
         
         # Faz a suavização usando as entradas suavizadas e o TPI reclassificado
-        match suavizar:
-            case "Baixo":
+        if suavizar == "Baixo":
+                #feedback.pushInfo ('\n Sauavização nível Baixo')
                 Calc(calc="A*B+(1-A)*C", A=f'{path}tpi_norm.tif', B=f'{path}dem_blur_3x3.vrt', C=f'{path}dem_blur_3x3.vrt', outfile=f'{path}merged.tif', overwrite=True)
-                
-            case "Médio":
+        elif suavizar == "Médio":
+                #feedback.pushInfo ('\n Sauavização nível Médio')
                 # Constroi VRT 7x7
                 gdal.BuildVRT(f'{path}dem_blur_7x7.vrt', f'{path}dem.tif')
 
@@ -554,7 +554,8 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
                 
                 Calc(calc="A*B+(1-A)*C", A=f'{path}tpi_norm.tif', B=f'{path}dem_blur_3x3.vrt', C=f'{path}dem_blur_7x7.vrt', outfile=f'{path}merged.tif', overwrite=True)
                 
-            case "Alto":
+        else:
+                #feedback.pushInfo ('\n Sauavização nível Alto')
                 # Constroi VRT 13x13
                 gdal.BuildVRT(f'{path}dem_blur_13x13.vrt', f'{path}dem.tif')
 
