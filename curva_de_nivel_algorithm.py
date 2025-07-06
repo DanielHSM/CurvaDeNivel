@@ -306,6 +306,8 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
                                 f.close()
                 else:
                     feedback.pushInfo ('\nErro ao baixar o arquivo: ' + raster_url)
+                    feedback.pushInfo ('\nVerifique o proxy ou a conexão com a internet')
+                    feedback.pushInfo ('\nCopie e cole o link acima no navegador para testar manualmente')
                     lista_rasters.remove(raster)
                                 
             # Atualiza progresso e barra
