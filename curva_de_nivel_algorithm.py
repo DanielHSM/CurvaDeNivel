@@ -466,114 +466,166 @@ class CurvaDeNivelAlgorithm(QgsProcessingAlgorithm):
         # Retorna sem vetor de resultado
         return {self.OUTPUT: None}
 
-    def suavizaTerreno (self, suavizar, feedback):
-        
+    def suavizaTerreno(self, suavizar, feedback):
         # TODO: Adicionar progressão da barra de status
-        
+
         if suavizar == 'Nenhum':
             return
-            
-        feedback.pushInfo ('\nCalculando suavização')
-            
+
+        feedback.pushInfo('\nCalculando suavização')
+
         # Inicializa variáveis
         inputDEM = os.path.join(self.temp_dir, 'merged.tif')
-        path = self.temp_dir + "\\"
+        path = self.temp_dir  # Use apenas o diretório, sem barra extra
         method = "gaussain"
         smooth = 9
-                
+
         # Gera tmp_dem.tif
-        gdal.Translate (f'{path}dem.tif', f'{inputDEM}', options="-ot Float32 -a_nodata -32768")
-                
+        gdal.Translate(
+            os.path.join(path, 'dem.tif'),
+            inputDEM,
+            options="-ot Float32 -a_nodata -32768"
+        )
+
         # Constroi VRT 3x3
-        gdal.BuildVRT(f'{path}dem_blur_3x3.vrt', f'{path}dem.tif')
-        
-        file = open(path + "dem_blur_3x3.vrt", "rt")
-        data = file.read()
-        data = data.replace("ComplexSource", "KernelFilteredSource")
-        data = data.replace("<NODATA>-32768</NODATA>", '<NODATA>-32768</NODATA><Kernel normalized="1"><Size>3</Size><Coefs>0.077847 0.123317 0.077847 0.123317 0.195346 0.123317 0.077847 0.123317 0.077847</Coefs></Kernel>')
-        file.close()
+        gdal.BuildVRT(
+            os.path.join(path, 'dem_blur_3x3.vrt'),
+            os.path.join(path, 'dem.tif')
+        )
 
-        file = open(path + "dem_blur_3x3.vrt", "wt")
-        file.write(data)
-        file.close()
-        
+        with open(os.path.join(path, "dem_blur_3x3.vrt"), "rt") as file:
+            data = file.read()
+        data = data.replace("ComplexSource", "KernelFilteredSource")
+        data = data.replace(
+            "<NODATA>-32768</NODATA>",
+            '<NODATA>-32768</NODATA><Kernel normalized="1"><Size>3</Size><Coefs>0.077847 0.123317 0.077847 0.123317 0.195346 0.123317 0.077847 0.123317 0.077847</Coefs></Kernel>'
+        )
+        with open(os.path.join(path, "dem_blur_3x3.vrt"), "wt") as file:
+            file.write(data)
+
         feedback.setProgress(int((self.progresso + 0.2) * self.status_total))
-        
-        # Calcula TPI
-        gdal.DEMProcessing(destName=f'{path}dem_tpi.tif', srcDS=inputDEM, processing='TPI')
-        
-        # Reclassifica TPI
-        Calc(calc="((-1)*A*(A<0))+(A*(A>=0))", A=f'{path}dem_tpi.tif', outfile=f'{path}tpi_pos.tif', NoDataValue=-32768, overwrite=True)
-        
-        feedback.setProgress(int((self.progresso + 0.4) * self.status_total))
-        
-        # gera VRT do TPI
-        gdal.BuildVRT(f'{path}tpi_blur_3x3.vrt', f'{path}tpi_pos.tif')
-        
-        file = open(path + "tpi_blur_3x3.vrt", "rt")
-        data = file.read()
-        data = data.replace("ComplexSource", "KernelFilteredSource")
-        data = data.replace("<NODATA>-32768</NODATA>", '<NODATA>-32768</NODATA><Kernel normalized="1"><Size>9</Size><Coefs>0 0.000001 0.000014 0.000055 0.000088 0.000055 0.000014 0.000001 0 0.000001 0.000036 0.000362 0.001445 0.002289 0.001445 0.000362 0.000036 0.000001 0.000014 0.000362 0.003672 0.014648 0.023205 0.014648 0.003672 0.000362 0.000014 0.000055 0.001445 0.014648 0.058434 0.092566 0.058434 0.014648 0.001445 0.000055 0.000088 0.002289 0.023205 0.092566 0.146634 0.092566 0.023205 0.002289 0.000088 0.000055 0.001445 0.014648 0.058434 0.092566 0.058434 0.014648 0.001445 0.000055 0.000014 0.000362 0.003672 0.014648 0.023205 0.014648 0.003672 0.000362 0.000014 0.000001 0.000036 0.000362 0.001445 0.002289 0.001445 0.000362 0.000036 0.000001 0 0.000001 0.000014 0.000055 0.000088 0.000055 0.000014 0.000001 0</Coefs></Kernel>')
-        file.close()
 
-        file = open(path + "tpi_blur_3x3.vrt", "wt")
-        file.write(data)
-        file.close()
-        
+        # Calcula TPI
+        gdal.DEMProcessing(
+            destName=os.path.join(path, 'dem_tpi.tif'),
+            srcDS=inputDEM,
+            processing='TPI'
+        )
+
+        # Reclassifica TPI
+        Calc(
+            calc="((-1)*A*(A<0))+(A*(A>=0))",
+            A=os.path.join(path, 'dem_tpi.tif'),
+            outfile=os.path.join(path, 'tpi_pos.tif'),
+            NoDataValue=-32768,
+            overwrite=True
+        )
+
+        feedback.setProgress(int((self.progresso + 0.4) * self.status_total))
+
+        # gera VRT do TPI
+        gdal.BuildVRT(
+            os.path.join(path, 'tpi_blur_3x3.vrt'),
+            os.path.join(path, 'tpi_pos.tif')
+        )
+
+        with open(os.path.join(path, "tpi_blur_3x3.vrt"), "rt") as file:
+            data = file.read()
+        data = data.replace("ComplexSource", "KernelFilteredSource")
+        data = data.replace(
+            "<NODATA>-32768</NODATA>",
+            '<NODATA>-32768</NODATA><Kernel normalized="1"><Size>9</Size><Coefs>0 0.000001 0.000014 0.000055 0.000088 0.000055 0.000014 0.000001 0 0.000001 0.000036 0.000362 0.001445 0.002289 0.001445 0.000362 0.000036 0.000001 0.000014 0.000362 0.003672 0.014648 0.023205 0.014648 0.003672 0.000362 0.000014 0.000055 0.001445 0.014648 0.058434 0.092566 0.058434 0.014648 0.001445 0.000055 0.000088 0.002289 0.023205 0.092566 0.146634 0.092566 0.023205 0.002289 0.000088 0.000055 0.001445 0.014648 0.058434 0.092566 0.058434 0.014648 0.001445 0.000055 0.000014 0.000362 0.003672 0.014648 0.023205 0.014648 0.003672 0.000362 0.000014 0.000001 0.000036 0.000362 0.001445 0.002289 0.001445 0.000362 0.000036 0.000001 0 0.000001 0.000014 0.000055 0.000088 0.000055 0.000014 0.000001 0</Coefs></Kernel>'
+        )
+        with open(os.path.join(path, "tpi_blur_3x3.vrt"), "wt") as file:
+            file.write(data)
+
         feedback.setProgress(int((self.progresso + 0.6) * self.status_total))
-        
+
         # Pega informações sobre o vrt do tpi
-        info = gdal.Info(ds=f'{path}tpi_blur_3x3.vrt', options="-hist -stats")
+        vrt_path = os.path.join(path, 'tpi_blur_3x3.vrt')
+        if not os.path.exists(vrt_path):
+            raise FileNotFoundError(f"Arquivo não encontrado: {vrt_path}")
+        info = gdal.Info(ds=vrt_path, options="-hist -stats")
 
         # Normaliza o vrt do tpi
         try:
             maxValue = re.findall('[0-9]*\.[0-9]*', re.findall('STATISTICS_MAXIMUM=\d*.\d*', info)[0])[0]
-            Calc(calc=f"A / {maxValue}", A=f'{path}tpi_blur_3x3.vrt', outfile=f'{path}tpi_norm.tif', NoDataValue=-32768, overwrite=True)
-        except:
-            gdal.Translate (destName=f'{path}tpi_norm.tif', srcDS=f'{path}tpi_blur_3x3.vrt')
-            
-         
-        feedback.setProgress(int((self.progresso + 0.8) * self.status_total))     
-        
+            Calc(
+                calc=f"A / {maxValue}",
+                A=os.path.join(path, 'tpi_blur_3x3.vrt'),
+                outfile=os.path.join(path, 'tpi_norm.tif'),
+                NoDataValue=-32768,
+                overwrite=True
+            )
+        except Exception:
+            gdal.Translate(
+                destName=os.path.join(path, 'tpi_norm.tif'),
+                srcDS=os.path.join(path, 'tpi_blur_3x3.vrt')
+            )
+
+        feedback.setProgress(int((self.progresso + 0.8) * self.status_total))
+
         # Faz a suavização usando as entradas suavizadas e o TPI reclassificado
         if suavizar == "Baixo":
-                #feedback.pushInfo ('\n Sauavização nível Baixo')
-                Calc(calc="A*B+(1-A)*C", A=f'{path}tpi_norm.tif', B=f'{path}dem_blur_3x3.vrt', C=f'{path}dem_blur_3x3.vrt', outfile=f'{path}merged.tif', overwrite=True)
+            Calc(
+                calc="A*B+(1-A)*C",
+                A=os.path.join(path, 'tpi_norm.tif'),
+                B=os.path.join(path, 'dem_blur_3x3.vrt'),
+                C=os.path.join(path, 'dem_blur_3x3.vrt'),
+                outfile=os.path.join(path, 'merged.tif'),
+                overwrite=True
+            )
         elif suavizar == "Médio":
-                #feedback.pushInfo ('\n Sauavização nível Médio')
-                # Constroi VRT 7x7
-                gdal.BuildVRT(f'{path}dem_blur_7x7.vrt', f'{path}dem.tif')
+            # Constroi VRT 7x7
+            gdal.BuildVRT(
+                os.path.join(path, 'dem_blur_7x7.vrt'),
+                os.path.join(path, 'dem.tif')
+            )
 
-                file = open(path + "dem_blur_7x7.vrt", "rt")
+            with open(os.path.join(path, "dem_blur_7x7.vrt"), "rt") as file:
                 data = file.read()
-                data = data.replace("ComplexSource", "KernelFilteredSource")
-                data = data.replace("<NODATA>-32768</NODATA>", '<NODATA>-32768</NODATA><Kernel normalized="1"><Size>7</Size><Coefs>0.000036 0.000363 0.001446 0.002291 0.001446 0.000363 0.000036 0.000363 0.003676 0.014662 0.023226 0.014662 0.003676 0.000363 0.001446 0.014662 0.058488 0.092651 0.058488 0.014662 0.001446 0.002291 0.023226 0.092651 0.146768 0.092651 0.023226 0.002291 0.001446 0.014662 0.058488 0.092651 0.058488 0.014662 0.001446 0.000363 0.003676 0.014662 0.023226 0.014662 0.003676 0.000363 0.000036 0.000363 0.001446 0.002291 0.001446 0.000363 0.000036</Coefs></Kernel>')
-                file.close()
-
-                file = open(path + "dem_blur_7x7.vrt", "wt")
+            data = data.replace("ComplexSource", "KernelFilteredSource")
+            data = data.replace(
+                "<NODATA>-32768</NODATA>",
+                '<NODATA>-32768</NODATA><Kernel normalized="1"><Size>7</Size><Coefs>0.000036 0.000363 0.001446 0.002291 0.001446 0.000363 0.000036 0.000363 0.003676 0.014662 0.023226 0.014662 0.003676 0.000363 0.001446 0.014662 0.058488 0.092651 0.058488 0.014662 0.001446 0.002291 0.023226 0.092651 0.146768 0.092651 0.023226 0.002291 0.001446 0.014662 0.058488 0.092651 0.058488 0.014662 0.001446 0.000363 0.003676 0.014662 0.023226 0.014662 0.003676 0.000363 0.000036 0.000363 0.001446 0.002291 0.001446 0.000363 0.000036</Coefs></Kernel>'
+            )
+            with open(os.path.join(path, "dem_blur_7x7.vrt"), "wt") as file:
                 file.write(data)
-                file.close()
-                
-                Calc(calc="A*B+(1-A)*C", A=f'{path}tpi_norm.tif', B=f'{path}dem_blur_3x3.vrt', C=f'{path}dem_blur_7x7.vrt', outfile=f'{path}merged.tif', overwrite=True)
-                
+
+            Calc(
+                calc="A*B+(1-A)*C",
+                A=os.path.join(path, 'tpi_norm.tif'),
+                B=os.path.join(path, 'dem_blur_3x3.vrt'),
+                C=os.path.join(path, 'dem_blur_7x7.vrt'),
+                outfile=os.path.join(path, 'merged.tif'),
+                overwrite=True
+            )
         else:
-                #feedback.pushInfo ('\n Sauavização nível Alto')
-                # Constroi VRT 13x13
-                gdal.BuildVRT(f'{path}dem_blur_13x13.vrt', f'{path}dem.tif')
+            # Constroi VRT 13x13
+            gdal.BuildVRT(
+                os.path.join(path, 'dem_blur_13x13.vrt'),
+                os.path.join(path, 'dem.tif')
+            )
 
-                file = open(path + "dem_blur_13x13.vrt", "rt")
+            with open(os.path.join(path, "dem_blur_13x13.vrt"), "rt") as file:
                 data = file.read()
-                data = data.replace("ComplexSource", "KernelFilteredSource")
-                data = data.replace("<NODATA>-32768</NODATA>", '<NODATA>-32768</NODATA><Kernel normalized="1"><Size>13</Size><Coefs>0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.000001 0.000001 0.000001 0 0 0 0 0 0 0 0 0.000001 0.000014 0.000055 0.000088 0.000055 0.000014 0.000001 0 0 0 0 0.000014 0.000362 0.003672 0.014648 0.023204 0.014648 0.003672 0.000362 0.000014 0 0 0 0.000001 0.000055 0.001445 0.014648 0.058433 0.092564 0.058433 0.014648 0.001445 0.000055 0.000001 0 0 0.000001 0.000088 0.002289 0.023204 0.092564 0.146632 0.092564 0.023204 0.002289 0.000088 0.000001 0 0 0.000001 0.000055 0.001445 0.014648 0.058433 0.092564 0.058433 0.014648 0.001445 0.000055 0.000001 0 0 0 0.000014 0.000362 0.003672 0.014648 0.023204 0.014648 0.003672 0.000362 0.000014 0 0 0 0 0.000001 0.000036 0.000362 0.001445 0.002289 0.001445 0.000362 0.000036 0.000001 0 0 0 0 0 0.000001 0.000014 0.000055 0.000088 0.000055 0.000014 0.000001 0 0 0 0 0 0 0 0 0.000001 0.000001 0.000001 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Coefs></Kernel>')
-                file.close()
-
-                file = open(path + "dem_blur_13x13.vrt", "wt")
+            data = data.replace("ComplexSource", "KernelFilteredSource")
+            data = data.replace(
+                "<NODATA>-32768</NODATA>",
+                '<NODATA>-32768</NODATA><Kernel normalized="1"><Size>13</Size><Coefs>0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.000001 0.000001 0.000001 0 0 0 0 0 0 0 0 0.000001 0.000014 0.000055 0.000088 0.000055 0.000014 0.000001 0 0 0 0 0.000014 0.000362 0.003672 0.014648 0.023204 0.014648 0.003672 0.000362 0.000014 0 0 0 0.000001 0.000055 0.001445 0.014648 0.058433 0.092564 0.058433 0.014648 0.001445 0.000055 0.000001 0 0 0.000001 0.000088 0.002289 0.023204 0.092564 0.146632 0.092564 0.023204 0.002289 0.000088 0.000001 0 0 0.000001 0.000055 0.001445 0.014648 0.058433 0.092564 0.058433 0.014648 0.001445 0.000055 0.000001 0 0 0 0.000014 0.000362 0.003672 0.014648 0.023204 0.014648 0.003672 0.000362 0.000014 0 0 0 0 0.000001 0.000036 0.000362 0.001445 0.002289 0.001445 0.000362 0.000036 0.000001 0 0 0 0 0 0.000001 0.000014 0.000055 0.000088 0.000055 0.000014 0.000001 0 0 0 0 0 0 0 0 0.000001 0.000001 0.000001 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Coefs></Kernel>'
+            )
+            with open(os.path.join(path, "dem_blur_13x13.vrt"), "wt") as file:
                 file.write(data)
-                file.close()
-                
-                Calc(calc="A*B+(1-A)*C", A=f'{path}tpi_norm.tif', B=f'{path}dem_blur_3x3.vrt', C=f'{path}dem_blur_13x13.vrt', outfile=f'{path}merged.tif', overwrite=True)
-                
-        
+
+            Calc(
+                calc="A*B+(1-A)*C",
+                A=os.path.join(path, 'tpi_norm.tif'),
+                B=os.path.join(path, 'dem_blur_3x3.vrt'),
+                C=os.path.join(path, 'dem_blur_13x13.vrt'),
+                outfile=os.path.join(path, 'merged.tif'),
+                overwrite=True
+            )
+
         feedback.setProgress(int((self.progresso + 1.0) * self.status_total))
        
     def icon(self):
