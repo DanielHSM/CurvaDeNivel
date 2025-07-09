@@ -65,8 +65,7 @@ PEP8EXCLUDE=pydev,resources.py,conf.py,third_party,ui
 #	* Windows:
 #	  AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins'
 
-QGISDIR=C:\Users\daniel.dhsm\AppData/Roaming/QGIS/QGIS3/profiles/default/python/plugins
-
+QGISDIR=Library/Application Support/QGIS/QGIS3/profiles/default
 #################################################
 # Normally you would not need to edit below here
 #################################################
@@ -117,19 +116,17 @@ deploy: compile doc transcompile
 	@echo "------------------------------------------"
 	@echo "Deploying plugin to your .qgis2 directory."
 	@echo "------------------------------------------"
-	# The deploy  target only works on unix like operating system where
-	# the Python plugin directory is located at:
-	# $HOME/$(QGISDIR)/python/plugins
-	mkdir -p $(HOME)/$(QGISDIR)/python/plugins/$(PLUGINNAME)
-	cp -vf $(PY_FILES) $(HOME)/$(QGISDIR)/python/plugins/$(PLUGINNAME)
-	cp -vf $(UI_FILES) $(HOME)/$(QGISDIR)/python/plugins/$(PLUGINNAME)
-	cp -vf $(COMPILED_RESOURCE_FILES) $(HOME)/$(QGISDIR)/python/plugins/$(PLUGINNAME)
-	cp -vf $(EXTRAS) $(HOME)/$(QGISDIR)/python/plugins/$(PLUGINNAME)
-	cp -vfr i18n $(HOME)/$(QGISDIR)/python/plugins/$(PLUGINNAME)
-	cp -vfr $(HELP) $(HOME)/$(QGISDIR)/python/plugins/$(PLUGINNAME)/help
-	# Copy extra directories if any
-	(foreach EXTRA_DIR,(EXTRA_DIRS), cp -R (EXTRA_DIR) (HOME)/(QGISDIR)/python/plugins/(PLUGINNAME)/;)
-
+	mkdir -p "$(HOME)/$(QGISDIR)/python/plugins/$(PLUGINNAME)"
+	cp -vf $(PY_FILES) "$(HOME)/$(QGISDIR)/python/plugins/$(PLUGINNAME)"
+	if [ -n "$(UI_FILES)" ]; then cp -vf $(UI_FILES) "$(HOME)/$(QGISDIR)/python/plugins/$(PLUGINNAME)"; fi
+	if [ -n "$(COMPILED_RESOURCE_FILES)" ]; then cp -vf $(COMPILED_RESOURCE_FILES) "$(HOME)/$(QGISDIR)/python/plugins/$(PLUGINNAME)"; fi
+	cp -vf $(EXTRAS) "$(HOME)/$(QGISDIR)/python/plugins/$(PLUGINNAME)"
+	cp -vfr i18n "$(HOME)/$(QGISDIR)/python/plugins/$(PLUGINNAME)"
+	cp -vfr $(HELP) "$(HOME)/$(QGISDIR)/python/plugins/$(PLUGINNAME)/help"
+	@# Copy extra directories if any
+	@for dir in $(EXTRA_DIRS); do \
+        cp -R "$$dir" "$(HOME)/$(QGISDIR)/python/plugins/$(PLUGINNAME)/"; \
+    done
 
 # The dclean target removes compiled python files from plugin directory
 # also deletes any .git entry
@@ -157,7 +154,7 @@ zip: deploy dclean
 	# The zip target deploys the plugin and creates a zip file with the deployed
 	# content. You can then upload the zip file on http://plugins.qgis.org
 	rm -f $(PLUGINNAME).zip
-	cd $(HOME)/$(QGISDIR)/python/plugins; zip -9r $(CURDIR)/$(PLUGINNAME).zip $(PLUGINNAME)
+	cd "$(HOME)/$(QGISDIR)/python/plugins"; zip -9r "$(CURDIR)/$(PLUGINNAME).zip" "$(PLUGINNAME)"
 
 package: compile
 	# Create a zip package of the plugin named $(PLUGINNAME).zip.
